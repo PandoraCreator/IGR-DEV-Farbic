@@ -4,12 +4,100 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
+	"sort"
+	"strconv"
 
+	"github.com/hyperledger/fabric-chaincode-go/v2/shim"
 	"github.com/hyperledger/fabric-contract-api-go/v2/contractapi"
 )
 
-// txTimestampMillis returns the transaction proposal timestamp in milliseconds.
-// Deterministic across all endorsing peers (unlike time.Now()).
+const (
+	StateSign         = 1
+	StateLoanApproval = 2
+	StateNocApproval  = 3
+
+	StatusSign         = "sign"
+	StatusLoanApproval = "loan_approval"
+	StatusNocApproval  = "noc_approval"
+
+	ActionSign         = "SIGN"
+	ActionLoanApproval = "LOAN_APPROVAL"
+	ActionNocApproval  = "NOC_APPROVAL"
+
+	docObjectType     = "doc"
+	dochistObjectType = "dochist"
+
+	sroIDAttribute = "sroId"
+)
+
+var (
+	parentDocIDPattern = regexp.MustCompile(`^(\d{4})SRO(\d+)DOC(\d+)$`)
+	noiIDPattern       = regexp.MustCompile(`^NoI(\d+)$`)
+)
+
+type ParentDocIDParts struct {
+	Year   string `json:"year"`
+	SRONum string `json:"sroNum"`
+	DocNum string `json:"docNum"`
+}
+
+type DocMetadata struct {
+	StateLabel string `json:"stateLabel"`
+	UpdatedAt  int64  `json:"updatedAt"`
+	Extra      string `json:"extra,omitempty"`
+}
+
+type DocTxRecord struct {
+	DocID     string `json:"docId"`
+	NoiID     string `json:"noiId"`
+	DocHash   string `json:"docHash,omitempty"`
+	TxID      string `json:"txId"`
+	Action    string `json:"action"`
+	State     int    `json:"state"`
+	Status    string `json:"status"`
+	Metadata  string `json:"metadata"`
+	Timestamp int64  `json:"timestamp"`
+	MSPID     string `json:"mspId"`
+	SROId     string `json:"sroId,omitempty"`
+	SignerID  string `json:"signerId,omitempty"`
+}
+
+type DocCurrent struct {
+	DocID      string `json:"docId"`
+	NoiID      string `json:"noiId"`
+	DocHash    string `json:"docHash,omitempty"`
+	State      int    `json:"state"`
+	Status     string `json:"status"`
+	OwnerSROId string `json:"ownerSroId,omitempty"`
+	Metadata   string `json:"metadata"`
+	LatestTxID string `json:"latestTxId"`
+	UpdatedAt  int64  `json:"updatedAt"`
+	TxCount    int    `json:"txCount"`
+}
+
+type DocLatestResponse struct {
+	Tx     DocTxRecord `json:"tx"`
+	State  int         `json:"state"`
+	Status string      `json:"status"`
+}
+
+type NoiStatusEntry struct {
+	NoiID   string `json:"noiId"`
+	DocHash string `json:"docHash,omitempty"`
+	State   int    `json:"state"`
+	Status  string `json:"status"`
+}
+
+type DocNOIOverview struct {
+	DocID string           `json:"docId"`
+	Nois  []NoiStatusEntry `json:"nois"`
+}
+
+type DocRegistryChaincode struct {
+	contractapi.Contract
+}
+
 func txTimestampMillis(ctx contractapi.TransactionContextInterface) (int64, error) {
 	ts, err := ctx.GetStub().GetTxTimestamp()
 	if err != nil {
@@ -18,163 +106,252 @@ func txTimestampMillis(ctx contractapi.TransactionContextInterface) (int64, erro
 	return ts.GetSeconds()*1000 + int64(ts.GetNanos()/1_000_000), nil
 }
 
-// Asset represents a registered asset with ownership and document information
-type Asset struct {
-	AssetID      string `json:"assetId"`
-	OwnerID      string `json:"ownerId"`
-	DocHash      string `json:"docHash"`
-	Metadata     string `json:"metadata"`
-	CreatedAt    int64  `json:"createdAt"`
-	UpdatedAt    int64  `json:"updatedAt"`
-	CreatedTxID  string `json:"createdTxId"`
-	LastTxID     string `json:"lastTxId"`
+func parseParentDocID(docID string) (*ParentDocIDParts, error) {
+	if docID == "" {
+		return nil, fmt.Errorf("docID cannot be empty")
+	}
+	m := parentDocIDPattern.FindStringSubmatch(docID)
+	if m == nil {
+		return nil, fmt.Errorf("docID %q has invalid format, expected YYYYSRO<number>DOC<number>", docID)
+	}
+	return &ParentDocIDParts{Year: m[1], SRONum: m[2], DocNum: m[3]}, nil
 }
 
-// AssetRegistryChaincode handles the asset registry smart contract
-type AssetRegistryChaincode struct {
-	contractapi.Contract
+func parseNoiID(noiID string) error {
+	if noiID == "" {
+		return fmt.Errorf("noiID cannot be empty")
+	}
+	if !noiIDPattern.MatchString(noiID) {
+		return fmt.Errorf("noiID %q has invalid format, expected NoI<number> (e.g. NoI1, NoI2)", noiID)
+	}
+	return nil
 }
 
-// OwnershipTransferred event emitted when ownership changes
-type OwnershipTransferred struct {
-	AssetID   string `json:"assetId"`
-	FromOwner string `json:"fromOwner"`
-	ToOwner   string `json:"toOwner"`
-	TxID      string `json:"txId"`
-	Timestamp int64  `json:"timestamp"`
-}
-
-// CreateAsset creates a new asset (IGRPrimary only)
-// Args: assetId, ownerId, docHash, metadata
-func (cc *AssetRegistryChaincode) CreateAsset(ctx contractapi.TransactionContextInterface, assetID string, ownerID string, docHash string, metadata string) error {
-	// RBAC: Only IGRPrimaryMSP can create assets
-	mspID, err := ctx.GetClientIdentity().GetMSPID()
+func validateDocAndNoi(docID, noiID string) (*ParentDocIDParts, error) {
+	parts, err := parseParentDocID(docID)
 	if err != nil {
-		return fmt.Errorf("failed to get MSP ID: %v", err)
+		return nil, err
 	}
-
-	if mspID != "IGRPrimaryMSP" {
-		return fmt.Errorf("only IGRPrimaryMSP can create assets, got %s", mspID)
+	if err := parseNoiID(noiID); err != nil {
+		return nil, err
 	}
+	return parts, nil
+}
 
-	// Check if asset already exists
-	existingAsset, err := ctx.GetStub().GetState(assetID)
+func stateToStatus(state int) string {
+	switch state {
+	case StateSign:
+		return StatusSign
+	case StateLoanApproval:
+		return StatusLoanApproval
+	case StateNocApproval:
+		return StatusNocApproval
+	default:
+		return ""
+	}
+}
+
+func docCompositeKey(stub shim.ChaincodeStubInterface, docID, noiID string) (string, error) {
+	return stub.CreateCompositeKey(docObjectType, []string{docID, noiID})
+}
+
+func dochistCompositeKey(stub shim.ChaincodeStubInterface, docID, noiID string, seq int) (string, error) {
+	return stub.CreateCompositeKey(dochistObjectType, []string{docID, noiID, fmt.Sprintf("%010d", seq)})
+}
+
+func getCallerSROId(ctx contractapi.TransactionContextInterface) (string, error) {
+	val, found, err := ctx.GetClientIdentity().GetAttributeValue(sroIDAttribute)
 	if err != nil {
-		return fmt.Errorf("failed to read from world state: %v", err)
+		return "", fmt.Errorf("failed to read caller %q attribute: %v", sroIDAttribute, err)
 	}
-
-	if existingAsset != nil {
-		return fmt.Errorf("asset with ID %s already exists", assetID)
+	if !found || val == "" {
+		return "", fmt.Errorf("caller missing required certificate attribute %q", sroIDAttribute)
 	}
+	return val, nil
+}
 
-	// Validate required fields
-	if assetID == "" || ownerID == "" || docHash == "" {
-		return fmt.Errorf("assetId, ownerId, and docHash cannot be empty")
-	}
-
-	now, err := txTimestampMillis(ctx)
+func requireCallerSROMatchesParentDoc(ctx contractapi.TransactionContextInterface, docID string) error {
+	parts, err := parseParentDocID(docID)
 	if err != nil {
 		return err
 	}
-	txID := ctx.GetStub().GetTxID()
-
-	asset := Asset{
-		AssetID:     assetID,
-		OwnerID:     ownerID,
-		DocHash:     docHash,
-		Metadata:    metadata,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		CreatedTxID: txID,
-		LastTxID:    txID,
-	}
-
-	// Marshal to JSON
-	assetJSON, err := json.Marshal(asset)
+	callerSRO, err := getCallerSROId(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to marshal asset: %v", err)
+		return err
 	}
+	if callerSRO != parts.SRONum {
+		return fmt.Errorf("caller sroId %q does not match document SRO %q in docID", callerSRO, parts.SRONum)
+	}
+	return nil
+}
 
-	// Store in world state
-	err = ctx.GetStub().PutState(assetID, assetJSON)
+func requireCallerSROMatchesNoiOwner(ctx contractapi.TransactionContextInterface, docID, noiID string) error {
+	current, exists, err := loadNoiCurrent(ctx, docID, noiID)
 	if err != nil {
-		return fmt.Errorf("failed to put state: %v", err)
+		return err
 	}
+	if !exists {
+		return fmt.Errorf("noi %s under doc %s does not exist", noiID, docID)
+	}
+	callerSRO, err := getCallerSROId(ctx)
+	if err != nil {
+		return err
+	}
+	if callerSRO != current.OwnerSROId {
+		return fmt.Errorf("caller sroId %q does not match noi owner SRO %q", callerSRO, current.OwnerSROId)
+	}
+	return nil
+}
 
-	// Emit event
+func getSignerID(ctx contractapi.TransactionContextInterface) string {
+	id, err := ctx.GetClientIdentity().GetID()
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
+func getMSPID(ctx contractapi.TransactionContextInterface) (string, error) {
+	mspID, err := ctx.GetClientIdentity().GetMSPID()
+	if err != nil {
+		return "", fmt.Errorf("failed to get MSP ID: %v", err)
+	}
+	return mspID, nil
+}
+
+func requireMSP(mspID string, allowed ...string) error {
+	for _, a := range allowed {
+		if mspID == a {
+			return nil
+		}
+	}
+	return fmt.Errorf("MSP %s is not authorized for this operation", mspID)
+}
+
+func buildMetadata(stateLabel string, updatedAt int64, extra string) (string, error) {
+	meta := DocMetadata{StateLabel: stateLabel, UpdatedAt: updatedAt, Extra: extra}
+	b, err := json.Marshal(meta)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal metadata: %v", err)
+	}
+	return string(b), nil
+}
+
+func loadNoiCurrent(ctx contractapi.TransactionContextInterface, docID, noiID string) (*DocCurrent, bool, error) {
+	key, err := docCompositeKey(ctx.GetStub(), docID, noiID)
+	if err != nil {
+		return nil, false, err
+	}
+	data, err := ctx.GetStub().GetState(key)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read noi state: %v", err)
+	}
+	if data == nil {
+		return nil, false, nil
+	}
+	var current DocCurrent
+	if err := json.Unmarshal(data, &current); err != nil {
+		return nil, false, fmt.Errorf("failed to unmarshal noi state: %v", err)
+	}
+	return &current, true, nil
+}
+
+func saveNoiCurrent(ctx contractapi.TransactionContextInterface, current *DocCurrent) error {
+	key, err := docCompositeKey(ctx.GetStub(), current.DocID, current.NoiID)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(current)
+	if err != nil {
+		return fmt.Errorf("failed to marshal noi state: %v", err)
+	}
+	return ctx.GetStub().PutState(key, b)
+}
+
+func appendNoiHistory(ctx contractapi.TransactionContextInterface, record DocTxRecord, seq int) error {
+	key, err := dochistCompositeKey(ctx.GetStub(), record.DocID, record.NoiID, seq)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tx record: %v", err)
+	}
+	return ctx.GetStub().PutState(key, b)
+}
+
+func emitNoiStateChanged(ctx contractapi.TransactionContextInterface, docID, noiID, action, status string, state int, txID string, timestamp int64) {
 	event := map[string]interface{}{
-		"eventType": "AssetCreated",
-		"assetId":   assetID,
-		"ownerId":   ownerID,
-		"docHash":   docHash,
+		"eventType": "NoiStateChanged",
+		"docId":     docID,
+		"noiId":     noiID,
+		"action":    action,
+		"state":     state,
+		"status":    status,
 		"txId":      txID,
-		"timestamp": now,
+		"timestamp": timestamp,
 	}
-
 	eventJSON, _ := json.Marshal(event)
-	ctx.GetStub().SetEvent("AssetCreated", eventJSON)
-
-	return nil
+	_ = ctx.GetStub().SetEvent("NoiStateChanged", eventJSON)
 }
 
-// ReadAsset reads an asset (both orgs can read)
-// Args: assetId
-func (cc *AssetRegistryChaincode) ReadAsset(ctx contractapi.TransactionContextInterface, assetID string) (*Asset, error) {
-	// Both IGRPrimaryMSP and IGRBankMSP can read
-	assetJSON, err := ctx.GetStub().GetState(assetID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read from world state: %v", err)
-	}
-
-	if assetJSON == nil {
-		return nil, fmt.Errorf("asset with ID %s does not exist", assetID)
-	}
-
-	var asset Asset
-	err = json.Unmarshal(assetJSON, &asset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal asset: %v", err)
-	}
-
-	return &asset, nil
+type transitionOpts struct {
+	isSign                 bool
+	expectedState          int
+	newState               int
+	status                 string
+	action                 string
+	allowedMSPs            []string
+	requireParentSROMatch  bool
 }
 
-// TransferOwnership transfers ownership of an asset (IGRPrimary only)
-// Args: assetId, newOwnerId
-func (cc *AssetRegistryChaincode) TransferOwnership(ctx contractapi.TransactionContextInterface, assetID string, newOwnerID string) error {
-	// RBAC: Only IGRPrimaryMSP can transfer ownership
-	mspID, err := ctx.GetClientIdentity().GetMSPID()
+func (cc *DocRegistryChaincode) recordNoiTransition(
+	ctx contractapi.TransactionContextInterface,
+	docID, noiID, docHash, extraMetadata string,
+	opts transitionOpts,
+) error {
+	if _, err := validateDocAndNoi(docID, noiID); err != nil {
+		return err
+	}
+
+	mspID, err := getMSPID(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get MSP ID: %v", err)
+		return err
+	}
+	if err := requireMSP(mspID, opts.allowedMSPs...); err != nil {
+		return err
+	}
+	if opts.requireParentSROMatch {
+		if err := requireCallerSROMatchesParentDoc(ctx, docID); err != nil {
+			return err
+		}
 	}
 
-	if mspID != "IGRPrimaryMSP" {
-		return fmt.Errorf("only IGRPrimaryMSP can transfer ownership, got %s", mspID)
-	}
-
-	// Validate inputs
-	if assetID == "" || newOwnerID == "" {
-		return fmt.Errorf("assetId and newOwnerId cannot be empty")
-	}
-
-	// Read existing asset
-	assetJSON, err := ctx.GetStub().GetState(assetID)
+	current, exists, err := loadNoiCurrent(ctx, docID, noiID)
 	if err != nil {
-		return fmt.Errorf("failed to read from world state: %v", err)
+		return err
 	}
 
-	if assetJSON == nil {
-		return fmt.Errorf("asset with ID %s does not exist", assetID)
+	if opts.isSign {
+		if exists {
+			return fmt.Errorf("noi %s under doc %s already exists", noiID, docID)
+		}
+		if docHash == "" {
+			return fmt.Errorf("docHash cannot be empty when signing noi %s", noiID)
+		}
+		current = &DocCurrent{DocID: docID, NoiID: noiID, DocHash: docHash, TxCount: 0}
+	} else {
+		if !exists {
+			return fmt.Errorf("noi %s under doc %s does not exist", noiID, docID)
+		}
+		if current.State == StateNocApproval {
+			return fmt.Errorf("noi %s under doc %s is in terminal status %q", noiID, docID, StatusNocApproval)
+		}
+		if current.State != opts.expectedState {
+			return fmt.Errorf("noi %s under doc %s is in state %d (%s), expected %d (%s)",
+				noiID, docID, current.State, current.Status, opts.expectedState, stateToStatus(opts.expectedState))
+		}
 	}
-
-	var asset Asset
-	err = json.Unmarshal(assetJSON, &asset)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal asset: %v", err)
-	}
-
-	// Store old owner for event
-	oldOwnerID := asset.OwnerID
 
 	now, err := txTimestampMillis(ctx)
 	if err != nil {
@@ -182,114 +359,290 @@ func (cc *AssetRegistryChaincode) TransferOwnership(ctx contractapi.TransactionC
 	}
 	txID := ctx.GetStub().GetTxID()
 
-	asset.OwnerID = newOwnerID
-	asset.UpdatedAt = now
-	asset.LastTxID = txID
-
-	// Marshal updated asset
-	updatedAssetJSON, err := json.Marshal(asset)
+	metaStr, err := buildMetadata(opts.status, now, extraMetadata)
 	if err != nil {
-		return fmt.Errorf("failed to marshal asset: %v", err)
+		return err
 	}
 
-	// Store updated asset
-	err = ctx.GetStub().PutState(assetID, updatedAssetJSON)
-	if err != nil {
-		return fmt.Errorf("failed to put state: %v", err)
+	callerSRO := ""
+	if opts.requireParentSROMatch || mspID == "IGRPrimaryMSP" {
+		callerSRO, _ = getCallerSROId(ctx)
 	}
 
-	// Emit OwnershipTransferred event
-	ownershipEvent := OwnershipTransferred{
-		AssetID:   assetID,
-		FromOwner: oldOwnerID,
-		ToOwner:   newOwnerID,
+	record := DocTxRecord{
+		DocID:     docID,
+		NoiID:     noiID,
+		DocHash:   current.DocHash,
 		TxID:      txID,
+		Action:    opts.action,
+		State:     opts.newState,
+		Status:    opts.status,
+		Metadata:  metaStr,
 		Timestamp: now,
+		MSPID:     mspID,
+		SROId:     callerSRO,
+		SignerID:  getSignerID(ctx),
 	}
 
-	eventJSON, _ := json.Marshal(ownershipEvent)
-	ctx.GetStub().SetEvent("OwnershipTransferred", eventJSON)
+	seq := current.TxCount
+	if err := appendNoiHistory(ctx, record, seq); err != nil {
+		return fmt.Errorf("failed to store history: %v", err)
+	}
 
+	current.State = opts.newState
+	current.Status = opts.status
+	current.Metadata = metaStr
+	current.LatestTxID = txID
+	current.UpdatedAt = now
+	current.TxCount++
+	if opts.isSign {
+		current.OwnerSROId = callerSRO
+	}
+
+	if err := saveNoiCurrent(ctx, current); err != nil {
+		return fmt.Errorf("failed to store noi state: %v", err)
+	}
+
+	emitNoiStateChanged(ctx, docID, noiID, opts.action, opts.status, opts.newState, txID, now)
 	return nil
 }
 
-// ListAllAssets returns all assets (both orgs can read)
-func (cc *AssetRegistryChaincode) ListAllAssets(ctx contractapi.TransactionContextInterface) ([]*Asset, error) {
-	// Query all assets using key range
-	resultsIterator, err := ctx.GetStub().GetStateByRange("", "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get state by range: %v", err)
-	}
-	defer resultsIterator.Close()
-
-	var assets []*Asset
-	for resultsIterator.HasNext() {
-		result, err := resultsIterator.Next()
-		if err != nil {
-			return nil, fmt.Errorf("failed to iterate results: %v", err)
-		}
-
-		var asset Asset
-		err = json.Unmarshal(result.Value, &asset)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal asset: %v", err)
-		}
-
-		assets = append(assets, &asset)
-	}
-
-	return assets, nil
+// SignDoc registers a new NOI under docID (status: sign). IGRPrimaryMSP only.
+func (cc *DocRegistryChaincode) SignDoc(ctx contractapi.TransactionContextInterface, docID, noiID, docHash, metadata string) error {
+	return cc.recordNoiTransition(ctx, docID, noiID, docHash, metadata, transitionOpts{
+		isSign:                true,
+		newState:              StateSign,
+		status:                StatusSign,
+		action:                ActionSign,
+		allowedMSPs:           []string{"IGRPrimaryMSP"},
+		requireParentSROMatch: true,
+	})
 }
 
-// GetAssetsByOwner returns all assets owned by a specific owner (both orgs can read)
-// Args: ownerId
-func (cc *AssetRegistryChaincode) GetAssetsByOwner(ctx contractapi.TransactionContextInterface, ownerID string) ([]*Asset, error) {
-	// Iterate through all assets and filter by owner
-	resultsIterator, err := ctx.GetStub().GetStateByRange("", "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get state by range: %v", err)
-	}
-	defer resultsIterator.Close()
-
-	var assets []*Asset
-	for resultsIterator.HasNext() {
-		result, err := resultsIterator.Next()
-		if err != nil {
-			return nil, fmt.Errorf("failed to iterate results: %v", err)
-		}
-
-		var asset Asset
-		err = json.Unmarshal(result.Value, &asset)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal asset: %v", err)
-		}
-
-		if asset.OwnerID == ownerID {
-			assets = append(assets, &asset)
-		}
-	}
-
-	return assets, nil
+// ApproveLoan moves NOI to loan_approval. IGRBankMSP only.
+func (cc *DocRegistryChaincode) ApproveLoan(ctx contractapi.TransactionContextInterface, docID, noiID, metadata string) error {
+	return cc.recordNoiTransition(ctx, docID, noiID, "", metadata, transitionOpts{
+		expectedState: StateSign,
+		newState:      StateLoanApproval,
+		status:        StatusLoanApproval,
+		action:        ActionLoanApproval,
+		allowedMSPs:   []string{"IGRBankMSP"},
+	})
 }
 
-// VerifyDocHash verifies if a provided hash matches the stored hash
-// Args: assetId, providedHash
-func (cc *AssetRegistryChaincode) VerifyDocHash(ctx contractapi.TransactionContextInterface, assetID string, providedHash string) (bool, error) {
-	asset, err := cc.ReadAsset(ctx, assetID)
+// ApproveNoc finishes the loan (noc_approval). IGRPrimaryMSP or IGRBankMSP.
+func (cc *DocRegistryChaincode) ApproveNoc(ctx contractapi.TransactionContextInterface, docID, noiID, metadata string) error {
+	mspID, err := getMSPID(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to read asset: %v", err)
+		return err
+	}
+	if mspID == "IGRPrimaryMSP" {
+		if err := requireCallerSROMatchesNoiOwner(ctx, docID, noiID); err != nil {
+			return err
+		}
+	}
+	return cc.recordNoiTransition(ctx, docID, noiID, "", metadata, transitionOpts{
+		expectedState: StateLoanApproval,
+		newState:      StateNocApproval,
+		status:        StatusNocApproval,
+		action:        ActionNocApproval,
+		allowedMSPs:   []string{"IGRPrimaryMSP", "IGRBankMSP"},
+	})
+}
+
+// VerifyDocHash checks whether the provided hash matches the stored hash for an NOI.
+func (cc *DocRegistryChaincode) VerifyDocHash(ctx contractapi.TransactionContextInterface, docID, noiID, providedHash string) (bool, error) {
+	if _, err := validateDocAndNoi(docID, noiID); err != nil {
+		return false, err
+	}
+	if providedHash == "" {
+		return false, fmt.Errorf("providedHash cannot be empty")
 	}
 
-	return asset.DocHash == providedHash, nil
+	current, exists, err := loadNoiCurrent(ctx, docID, noiID)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, fmt.Errorf("noi %s under doc %s does not exist", noiID, docID)
+	}
+	return current.DocHash == providedHash, nil
+}
+
+func loadNoiHistoryRecord(ctx contractapi.TransactionContextInterface, docID, noiID string, seq int) (*DocTxRecord, error) {
+	key, err := dochistCompositeKey(ctx.GetStub(), docID, noiID, seq)
+	if err != nil {
+		return nil, err
+	}
+	data, err := ctx.GetStub().GetState(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read history: %v", err)
+	}
+	if data == nil {
+		return nil, fmt.Errorf("history record not found for doc %s noi %s seq %d", docID, noiID, seq)
+	}
+	var record DocTxRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal history: %v", err)
+	}
+	return &record, nil
+}
+
+// GetFullHistory returns all transactions for one NOI under a docID.
+func (cc *DocRegistryChaincode) GetFullHistory(ctx contractapi.TransactionContextInterface, docID, noiID string) ([]DocTxRecord, error) {
+	if _, err := validateDocAndNoi(docID, noiID); err != nil {
+		return nil, err
+	}
+
+	iter, err := ctx.GetStub().GetStateByPartialCompositeKey(dochistObjectType, []string{docID, noiID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query history: %v", err)
+	}
+	defer iter.Close()
+
+	type keyedRecord struct {
+		seq    int
+		record DocTxRecord
+	}
+	var records []keyedRecord
+
+	for iter.HasNext() {
+		resp, err := iter.Next()
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate history: %v", err)
+		}
+		_, parts, err := ctx.GetStub().SplitCompositeKey(resp.Key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse history key: %v", err)
+		}
+		if len(parts) < 3 {
+			return nil, fmt.Errorf("invalid history key attributes for %s", resp.Key)
+		}
+		seq, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return nil, fmt.Errorf("invalid history sequence in key %s: %v", resp.Key, err)
+		}
+		var record DocTxRecord
+		if err := json.Unmarshal(resp.Value, &record); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal history record: %v", err)
+		}
+		records = append(records, keyedRecord{seq: seq, record: record})
+	}
+
+	sort.Slice(records, func(i, j int) bool { return records[i].seq < records[j].seq })
+
+	history := make([]DocTxRecord, len(records))
+	for i, r := range records {
+		history[i] = r.record
+	}
+	return history, nil
+}
+
+// GetDocNOIs returns all NOI entries and their statuses under a parent docID.
+func (cc *DocRegistryChaincode) GetDocNOIs(ctx contractapi.TransactionContextInterface, docID string) (*DocNOIOverview, error) {
+	if _, err := parseParentDocID(docID); err != nil {
+		return nil, err
+	}
+
+	iter, err := ctx.GetStub().GetStateByPartialCompositeKey(docObjectType, []string{docID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query nois: %v", err)
+	}
+	defer iter.Close()
+
+	overview := &DocNOIOverview{DocID: docID, Nois: []NoiStatusEntry{}}
+	for iter.HasNext() {
+		resp, err := iter.Next()
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate nois: %v", err)
+		}
+		var current DocCurrent
+		if err := json.Unmarshal(resp.Value, &current); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal noi: %v", err)
+		}
+		status := current.Status
+		if status == "" {
+			status = stateToStatus(current.State)
+		}
+		overview.Nois = append(overview.Nois, NoiStatusEntry{
+			NoiID:   current.NoiID,
+			DocHash: current.DocHash,
+			State:   current.State,
+			Status:  status,
+		})
+	}
+
+	sort.Slice(overview.Nois, func(i, j int) bool { return overview.Nois[i].NoiID < overview.Nois[j].NoiID })
+	return overview, nil
+}
+
+// GetDocLatest returns the latest transaction for one NOI.
+func (cc *DocRegistryChaincode) GetDocLatest(ctx contractapi.TransactionContextInterface, docID, noiID string) (*DocLatestResponse, error) {
+	if _, err := validateDocAndNoi(docID, noiID); err != nil {
+		return nil, err
+	}
+
+	current, exists, err := loadNoiCurrent(ctx, docID, noiID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists || current.TxCount == 0 {
+		return nil, fmt.Errorf("noi %s under doc %s does not exist", noiID, docID)
+	}
+
+	latest, err := loadNoiHistoryRecord(ctx, docID, noiID, current.TxCount-1)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DocLatestResponse{
+		Tx:     *latest,
+		State:  current.State,
+		Status: current.Status,
+	}, nil
+}
+
+// GetDocStatus returns the current status for one NOI (sign, loan_approval, noc_approval).
+func (cc *DocRegistryChaincode) GetDocStatus(ctx contractapi.TransactionContextInterface, docID, noiID string) (string, error) {
+	if _, err := validateDocAndNoi(docID, noiID); err != nil {
+		return "", err
+	}
+
+	current, exists, err := loadNoiCurrent(ctx, docID, noiID)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", fmt.Errorf("noi %s under doc %s does not exist", noiID, docID)
+	}
+	if current.Status != "" {
+		return current.Status, nil
+	}
+	return stateToStatus(current.State), nil
+}
+
+// GetDocState returns the current numeric state (1, 2, or 3) for one NOI.
+func (cc *DocRegistryChaincode) GetDocState(ctx contractapi.TransactionContextInterface, docID, noiID string) (int, error) {
+	if _, err := validateDocAndNoi(docID, noiID); err != nil {
+		return 0, err
+	}
+
+	current, exists, err := loadNoiCurrent(ctx, docID, noiID)
+	if err != nil {
+		return 0, err
+	}
+	if !exists {
+		return 0, fmt.Errorf("noi %s under doc %s does not exist", noiID, docID)
+	}
+	return current.State, nil
 }
 
 func main() {
-	chaincode, err := contractapi.NewChaincode(&AssetRegistryChaincode{})
+	chaincode, err := contractapi.NewChaincode(&DocRegistryChaincode{})
 	if err != nil {
-		log.Panicf("Error creating asset registry chaincode: %v", err)
+		log.Panicf("Error creating doc registry chaincode: %v", err)
 	}
-
 	if err := chaincode.Start(); err != nil {
-		log.Panicf("Error starting asset registry chaincode: %v", err)
+		log.Panicf("Error starting doc registry chaincode: %v", err)
 	}
 }
