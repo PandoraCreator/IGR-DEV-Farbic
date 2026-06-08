@@ -38,9 +38,28 @@ createAnchorPeerUpdate() {
     errorln "Org${ORG} unknown"
   fi
 
+  local cfg="${TEST_NETWORK_HOME}/channel-artifacts/${CORE_PEER_LOCALMSPID}config.json"
+  local current_host current_port
+  current_host=$(jq -r --arg msp "$CORE_PEER_LOCALMSPID" \
+    '.channel_group.groups.Application.groups[$msp].values.AnchorPeers.value.anchor_peers[0].host // empty' \
+    "$cfg" 2>/dev/null || true)
+  current_port=$(jq -r --arg msp "$CORE_PEER_LOCALMSPID" \
+    '.channel_group.groups.Application.groups[$msp].values.AnchorPeers.value.anchor_peers[0].port // empty' \
+    "$cfg" 2>/dev/null || true)
+  if [[ "$current_host" == "$HOST" && "$current_port" == "$PORT" ]]; then
+    successln "Anchor peer already set for '$CORE_PEER_LOCALMSPID' on channel '$CHANNEL_NAME': ${HOST}:${PORT}"
+    ANCHOR_ALREADY_SET=true
+    return 0
+  fi
+
   set -x
-  # Modify the configuration to append the anchor peer 
-  jq '.channel_group.groups.Application.groups.'${CORE_PEER_LOCALMSPID}'.values += {"AnchorPeers":{"mod_policy": "Admins","value":{"anchor_peers": [{"host": "'$HOST'","port": '$PORT'}]},"version": "0"}}' ${TEST_NETWORK_HOME}/channel-artifacts/${CORE_PEER_LOCALMSPID}config.json > ${TEST_NETWORK_HOME}/channel-artifacts/${CORE_PEER_LOCALMSPID}modified_config.json
+  # Set or replace anchor peer for this org
+  jq --arg msp "$CORE_PEER_LOCALMSPID" --arg host "$HOST" --argjson port "$PORT" \
+    '.channel_group.groups.Application.groups[$msp].values.AnchorPeers = {
+      "mod_policy": "Admins",
+      "value": {"anchor_peers": [{"host": $host, "port": $port}]},
+      "version": "0"
+    }' "$cfg" > "${TEST_NETWORK_HOME}/channel-artifacts/${CORE_PEER_LOCALMSPID}modified_config.json"
   res=$?
   { set +x; } 2>/dev/null
   verifyResult $res "Channel configuration update for anchor peer failed, make sure you have jq installed"
@@ -65,6 +84,11 @@ CHANNEL_NAME=$2
 
 setGlobals $ORG
 
-createAnchorPeerUpdate 
+ANCHOR_ALREADY_SET=false
+createAnchorPeerUpdate
 
-updateAnchorPeer 
+if [ "${ANCHOR_ALREADY_SET}" = "true" ]; then
+  exit 0
+fi
+
+updateAnchorPeer

@@ -26,7 +26,7 @@ IGR_NETWORK="${IGR_NETWORK:-/opt/igr-network}"
 CC_NAME="${CC_NAME:-asset_registry}"
 CC_VERSION="${CC_VERSION:-1.0}"
 CC_SEQUENCE="${CC_SEQUENCE:-1}"
-CHANNEL_NAME="${CHANNEL_NAME:-mychannel}"
+CHANNEL_NAME="${CHANNEL_NAME:-igrchannel}"
 CC_IMAGE="${CC_IMAGE:-igr_asset_registry_ccaas}"
 CC_CONTAINER="${CC_CONTAINER:-igr_asset_registry_ccaas}"
 
@@ -80,7 +80,10 @@ export CHANNEL_NAME CC_NAME CC_VERSION CC_SEQUENCE
 export DELAY="${DELAY:-3}"
 export MAX_RETRY="${MAX_RETRY:-5}"
 export INIT_REQUIRED=""
-export CC_END_POLICY=""
+# CC_END_POLICY override: pass a full signature policy, e.g.
+#   export CC_END_POLICY="--signature-policy OR('IGRPrimaryMSP.peer','IGRBankMSP.peer')"
+# Empty = default MAJORITY policy (requires both orgs to endorse).
+export CC_END_POLICY="${CC_END_POLICY:-}"
 export CC_COLL_CONFIG=""
 # Remote peers must receive blocks from orderer; increase wait or disable (see preflight).
 export FABRIC_EVENT_TIMEOUT="${FABRIC_EVENT_TIMEOUT:-300s}"
@@ -104,8 +107,11 @@ EOF
 cat > "$PKG_DIR/pkg/metadata.json" <<EOF
 {"type":"ccaas","label":"${LABEL}"}
 EOF
-tar -C "$PKG_DIR/src" -czf "$PKG_DIR/pkg/code.tar.gz" .
-tar -C "$PKG_DIR/pkg" -czf "$IGR_NETWORK/${CC_NAME}.tar.gz" metadata.json code.tar.gz
+# Deterministic packaging: fixed mtime/owner + gzip -n so the package ID is
+# stable across runs (avoids CCID drift when a deploy is re-run).
+_DET_TAR=(--sort=name --mtime='UTC 2020-01-01' --owner=0 --group=0 --numeric-owner)
+tar "${_DET_TAR[@]}" -C "$PKG_DIR/src" -cf - . | gzip -n > "$PKG_DIR/pkg/code.tar.gz"
+tar "${_DET_TAR[@]}" -C "$PKG_DIR/pkg" -cf - metadata.json code.tar.gz | gzip -n > "$IGR_NETWORK/${CC_NAME}.tar.gz"
 export PACKAGE_ID
 PACKAGE_ID=$(peer lifecycle chaincode calculatepackageid "${CC_NAME}.tar.gz")
 echo "==> PACKAGE_ID=$PACKAGE_ID"
@@ -139,8 +145,14 @@ _load_ccaas_image_tar() {
 
 _ensure_ccaas_image() {
   if docker_cmd image inspect "${CC_IMAGE}:latest" >/dev/null 2>&1; then
-    echo "==> Docker image ${CC_IMAGE}:latest already loaded"
-    return 0
+    if [[ "${FORCE_CC_IMAGE:-}" == "1" ]]; then
+      echo "==> FORCE_CC_IMAGE=1: removing stale image ${CC_IMAGE}:latest to reload new build"
+      docker_cmd rm -f "$CC_CONTAINER" 2>/dev/null || true
+      docker_cmd rmi -f "${CC_IMAGE}:latest" 2>/dev/null || true
+    else
+      echo "==> Docker image ${CC_IMAGE}:latest already loaded (set FORCE_CC_IMAGE=1 to reload new source)"
+      return 0
+    fi
   fi
   if [[ -f "$CCAAS_IMAGE_TAR" ]]; then
     echo "==> Loading offline image from $CCAAS_IMAGE_TAR"
@@ -227,19 +239,48 @@ set +u
 # shellcheck source=ccutils.sh
 . "${SCRIPT_DIR}/ccutils.sh"
 set -u
+# ccutils uses `let rc=0` which returns exit status 1 under `set -e` and would
+# silently abort before commit. These functions exit explicitly via fatalln on
+# real errors, so disable errexit for the lifecycle steps.
+set +e
 
-echo "==> Approve for IGRPrimaryMSP"
-approveForMyOrg 1
-checkCommitReadiness 1 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": false"
-checkCommitReadiness 2 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": false"
+# Re-approving an org with identical content fails with
+# "attempted to redefine uncommitted sequence ... with unchanged content".
+# Skip the approve when this org already approved this sequence + package id.
+approve_if_needed() {
+  local org=$1
+  setGlobals "$org"
+  local approved
+  approved=$(peer lifecycle chaincode queryapproved --channelID "$CHANNEL_NAME" --name "$CC_NAME" 2>/dev/null)
+  if echo "$approved" | grep -q "sequence: ${CC_SEQUENCE}," && echo "$approved" | grep -q "${PACKAGE_ID}"; then
+    successln "org${org} already approved seq ${CC_SEQUENCE} (${PACKAGE_ID}); skipping approve"
+  else
+    approveForMyOrg "$org"
+  fi
+}
 
-echo "==> Approve for IGRBankMSP"
-approveForMyOrg 2
-checkCommitReadiness 1 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": true"
-checkCommitReadiness 2 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": true"
+# If this version+sequence is already committed, the approve/readiness/commit
+# steps would error (e.g. checkcommitreadiness reports "must be sequence N+1").
+# In that case the lifecycle is done; only the CCAAS image needed refreshing
+# (already handled above), so skip the entire lifecycle block.
+setGlobals 1
+if peer lifecycle chaincode querycommitted --channelID "$CHANNEL_NAME" --name "$CC_NAME" 2>/dev/null \
+    | grep -q "Version: ${CC_VERSION}, Sequence: ${CC_SEQUENCE},"; then
+  successln "seq ${CC_SEQUENCE} v${CC_VERSION} already committed on ${CHANNEL_NAME}; skipping approve/commit"
+else
+  echo "==> Approve for IGRPrimaryMSP"
+  approve_if_needed 1
+  checkCommitReadiness 1 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": false"
+  checkCommitReadiness 2 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": false"
 
-echo "==> Commit definition"
-commitChaincodeDefinition 1 2
+  echo "==> Approve for IGRBankMSP"
+  approve_if_needed 2
+  checkCommitReadiness 1 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": true"
+  checkCommitReadiness 2 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": true"
+
+  echo "==> Commit definition"
+  commitChaincodeDefinition 1 2
+fi
 
 queryCommitted 1
 queryCommitted 2
@@ -248,4 +289,5 @@ echo ""
 echo "Deploy OK: ${CC_NAME} v${CC_VERSION} seq ${CC_SEQUENCE} on ${CHANNEL_NAME}"
 echo "PACKAGE_ID=${PACKAGE_ID}"
 echo "Test invoke (IGRPrimary admin):"
-echo "  peer chaincode invoke -o ${FABRIC_ORDERER_HOST}:${FABRIC_ORDERER_PORT} --ordererTLSHostnameOverride orderer.example.com --tls --cafile \"\$ORDERER_CA\" -C ${CHANNEL_NAME} -n ${CC_NAME} --peerAddresses peer0.IGRPrimary.example.com:${PEER1_PORT_PEER} --tlsRootCertFiles \"\$TLS_PRIMARY\" --peerAddresses peer0.IGRBank.example.com:${PEER3_PORT_PEER} --tlsRootCertFiles \"\$TLS_BANK\" -c '{\"function\":\"CreateAsset\",\"Args\":[\"asset1\",\"owner1\",\"hash1\",\"meta1\"]}'"
+echo "  peer chaincode query -C ${CHANNEL_NAME} -n ${CC_NAME} -c '{\"function\":\"GetDocNOIs\",\"Args\":[\"2026SRO42DOC991\"]}'"
+echo "  Or run: bash scripts/verify-ccaas-deploy.sh"

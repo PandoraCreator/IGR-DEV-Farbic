@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ensure_fabric_binaries
 export PATH="${HOME}/fabric-samples/bin:${HOME}/bin:${PATH}"
 export FABRIC_CFG_PATH="$PWD/compose/docker/peercfg"
-export CHANNEL_NAME="${CHANNEL_NAME:-mychannel}"
+export CHANNEL_NAME="${CHANNEL_NAME:-igrchannel}"
 export TEST_NETWORK_HOME="$IGR_NETWORK"
 
 # shellcheck source=load-ops-env.sh

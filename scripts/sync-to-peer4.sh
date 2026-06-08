@@ -22,8 +22,9 @@ TARGET_PORT="${SSH_PORT:-5522}"
 TARGET_DIR="${IGR_NETWORK:-/opt/igr-network}"
 
 ARCHIVE="/tmp/igr-network-sync-$$.tgz"
+ARCHIVE_TAR="/tmp/igr-network-sync-$$.tar"
 PARENT="$(cd "$ROOT/.." && pwd)"
-trap 'rm -f "$ARCHIVE"' EXIT
+trap 'rm -f "$ARCHIVE" "$ARCHIVE_TAR"' EXIT
 
 echo ">>> Building archive (excludes .git, local crypto, channel blocks)..."
 tar -C "$ROOT" \
@@ -33,17 +34,20 @@ tar -C "$ROOT" \
   --exclude './channel-artifacts/*.block' \
   --exclude './system-genesis-block' \
   --exclude './docs/servers.credentials.local' \
-  -czf "$ARCHIVE" .
+  -cf "$ARCHIVE_TAR" .
 
 if [[ -f "$PARENT/chaincode/go.mod" ]]; then
   echo ">>> Including ../chaincode in archive (→ ${TARGET_DIR}/chaincode on peer-4)"
-  tar -C "$PARENT" -rf "$ARCHIVE" chaincode
+  tar -C "$PARENT" -rf "$ARCHIVE_TAR" chaincode
 elif [[ -f "$ROOT/chaincode/go.mod" ]]; then
   echo ">>> Including chaincode/ in archive"
-  tar -C "$ROOT" -rf "$ARCHIVE" chaincode
+  tar -C "$ROOT" -rf "$ARCHIVE_TAR" chaincode
 else
   echo ">>> WARNING: no chaincode/go.mod found — CCAAS deploy will fail until chaincode is copied" >&2
 fi
+
+gzip -c "$ARCHIVE_TAR" > "$ARCHIVE"
+rm -f "$ARCHIVE_TAR"
 
 echo ">>> Archive size: $(du -h "$ARCHIVE" | cut -f1)"
 echo ">>> Ensuring ${TARGET_DIR} on ${TARGET_USER}@${TARGET_HOST}:${TARGET_PORT}"
@@ -67,7 +71,7 @@ run_scp() {
   fi
 }
 
-run_ssh "sudo mkdir -p '${TARGET_DIR}' && sudo chown -R ${TARGET_USER}:${TARGET_USER} '${TARGET_DIR}'"
+run_ssh "echo '${PEER4_PASSWORD}' | sudo -S mkdir -p '${TARGET_DIR}' && echo '${PEER4_PASSWORD}' | sudo -S chown -R ${TARGET_USER}:${TARGET_USER} '${TARGET_DIR}'"
 
 echo ">>> Uploading to ${TARGET_HOST}:${TARGET_DIR}/"
 run_scp "$ARCHIVE" "${TARGET_USER}@${TARGET_HOST}:/tmp/igr-network-sync.tgz"
@@ -81,8 +85,9 @@ run_scp "$CREDS" "${TARGET_USER}@${TARGET_HOST}:${TARGET_DIR}/docs/servers.crede
 # Mirror to /opt/chaincode after extract (deploy script checks both paths)
 if [[ -f "$PARENT/chaincode/go.mod" ]] || [[ -f "$ROOT/chaincode/go.mod" ]]; then
   echo ">>> Mirroring chaincode to /opt/chaincode on peer-4..."
-  run_ssh "if [[ -d '${TARGET_DIR}/chaincode' ]]; then \
-    sudo mkdir -p /opt/chaincode && sudo chown -R ${TARGET_USER}:${TARGET_USER} /opt/chaincode && \
+  run_ssh "if [ -d '${TARGET_DIR}/chaincode' ]; then \
+    echo '${PEER4_PASSWORD}' | sudo -S mkdir -p /opt/chaincode && \
+    echo '${PEER4_PASSWORD}' | sudo -S chown -R ${TARGET_USER}:${TARGET_USER} /opt/chaincode && \
     rm -rf /opt/chaincode/* && cp -a '${TARGET_DIR}/chaincode/.' /opt/chaincode/; fi"
 fi
 
