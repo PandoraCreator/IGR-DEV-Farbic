@@ -69,6 +69,6 @@ Similarly, the `network.sh` script has been enhanced so that it can use `podman`
 CONTAINER_CLI=podman ./network.sh up
 ````
 
-As there is no Docker-Daemon when using podman, only the `./network.sh deployCCAAS` command will work. Following the Chaincode-as-a-service Tutorial above should work. 
+As there is  Docker-Daemon when using podman, only the `./network.sh deployCCAAS` command will work. Following the Chaincode-as-a-service Tutorial above should work. 
 
 
