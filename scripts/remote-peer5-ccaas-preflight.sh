@@ -46,9 +46,9 @@ check "peer-1 -> CCAAS" "$OPS_IP" "$CC_PORT"
 echo ""
 echo "=== CCAAS container (peer-4) ==="
 if command -v docker >/dev/null 2>&1; then
-  docker ps --filter name=igr_asset_registry --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null \
-    || sudo docker ps --filter name=igr_asset_registry --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null \
-    || echo "Run: sudo docker ps | grep igr_asset_registry"
+  docker ps --filter name=igr_anchor --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null \
+    || sudo docker ps --filter name=igr_anchor --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null \
+    || echo "Run: sudo docker ps | grep igr_anchor"
 else
   echo "docker not in PATH"
 fi

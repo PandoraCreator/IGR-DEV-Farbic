@@ -10,6 +10,7 @@ block="${MARKER}
 10.48.59.70  peer0.IGRPrimary.example.com
 10.48.59.76  peer1.IGRPrimary.example.com
 10.48.59.77  peer0.IGRBank.example.com
+10.48.59.79  peer1.IGRBank.example.com
 "
 
 if grep -q "$MARKER" "$HOSTS_FILE" 2>/dev/null; then
@@ -19,4 +20,4 @@ else
   echo "Added IGR hostnames to $HOSTS_FILE"
 fi
 
-getent hosts orderer.example.com chaincode.igr.example.com peer0.IGRPrimary.example.com
+getent hosts orderer.example.com chaincode.igr.example.com peer0.IGRPrimary.example.com peer1.IGRBank.example.com

@@ -3,10 +3,10 @@
 set -euo pipefail
 
 IGR_NETWORK="${IGR_NETWORK:-/opt/igr-network}"
-CC_NAME="${CC_NAME:-asset_registry}"
+CC_NAME="${CC_NAME:-igr_anchor}"
 CC_VERSION="${CC_VERSION:-1.0}"
 CC_SEQUENCE="${CC_SEQUENCE:-1}"
-CHANNEL_NAME="${CHANNEL_NAME:-mychannel}"
+CHANNEL_NAME="${CHANNEL_NAME:-igrchannel}"
 
 cd "$IGR_NETWORK"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

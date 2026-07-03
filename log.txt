@@ -1,1 +1,2 @@
-Error: failed to read chaincode package at 'chaincode_name.tar.gz': open chaincode_name.tar.gz: no such file or directory
+Committed chaincode definition for chaincode 'igr_anchor' on channel 'igrchannel':
+Version: 1.0, Sequence: 1, Endorsement Plugin: escc, Validation Plugin: vscc, Approvals: [IGRBankMSP: true, IGRPrimaryMSP: true]

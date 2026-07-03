@@ -1,14 +1,14 @@
 NodeOUs:
   Enable: true
   ClientOUIdentifier:
-    Certificate: cacerts/ca.IGRPrimary.example.com-cert.pem
+    Certificate: cacerts/localhost-7054-ca-IGRPrimary.pem
     OrganizationalUnitIdentifier: client
   PeerOUIdentifier:
-    Certificate: cacerts/ca.IGRPrimary.example.com-cert.pem
+    Certificate: cacerts/localhost-7054-ca-IGRPrimary.pem
     OrganizationalUnitIdentifier: peer
   AdminOUIdentifier:
-    Certificate: cacerts/ca.IGRPrimary.example.com-cert.pem
+    Certificate: cacerts/localhost-7054-ca-IGRPrimary.pem
     OrganizationalUnitIdentifier: admin
   OrdererOUIdentifier:
-    Certificate: cacerts/ca.IGRPrimary.example.com-cert.pem
+    Certificate: cacerts/localhost-7054-ca-IGRPrimary.pem
     OrganizationalUnitIdentifier: orderer

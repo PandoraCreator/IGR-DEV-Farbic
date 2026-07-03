@@ -2,7 +2,7 @@
 
 ## 5-server production deployment (ESDS VMs)
 
-For the multi-host layout, see **[docs/5-SERVER-DEPLOYMENT.md](docs/5-SERVER-DEPLOYMENT.md)**. **OPS (orderer/CAs/chaincode) runs on peer-4** — see **[docs/OPS-ON-PEER-4.md](docs/OPS-ON-PEER-4.md)** (peer-5 retired). Manual steps: **[docs/MANUAL-DEPLOYMENT.md](docs/MANUAL-DEPLOYMENT.md)**. SSH credentials: copy `docs/servers.credentials.local.example` to `docs/servers.credentials.local` (gitignored).
+For the multi-host layout, see **[docs/5-SERVER-DEPLOYMENT.md](docs/5-SERVER-DEPLOYMENT.md)**. **OPS (orderer/CAs/chaincode) runs on peer-4** — see **[docs/OPS-ON-PEER-4.md](docs/OPS-ON-PEER-4.md)**. Chaincode UAT is gated on MA-04 — see **[docs/CHAINCODE-UAT.md](docs/CHAINCODE-UAT.md)**. Manual steps: **[docs/MANUAL-DEPLOYMENT.md](docs/MANUAL-DEPLOYMENT.md)**. SSH credentials: copy `docs/servers.credentials.local.example` to `docs/servers.credentials.local` (gitignored).
 
 ---
 
@@ -61,7 +61,7 @@ To learn more about how to use the improvements to the Chaincode-as-a-service pl
 
 *Note - podman support should be considered experimental but the following has been reported to work with podman 4.1.1 on Mac. If you wish to use podman a LinuxVM is recommended.*
 
-Fabric's `install-fabric.sh` script has been enhanced to support using `podman` to pull down images and tag them rather than docker. The images are the same,atishek just pulled differently. Simply specify the 'podman' argument when running the `install-fabric.sh` script. 
+Fabric's `install-fabric.sh` script has been enhanced to support using `podman` to pull down images and tag them rather than docker. The images are the same, just pulled differently. Simply specify the 'podman' argument when running the `install-fabric.sh` script. 
 
 Similarly, the `network.sh` script has been enhanced so that it can use `podman` and `podman-compose` instead of docker. Just set the environment variable `CONTAINER_CLI` to `podman` before running the `network.sh` script:
 
@@ -69,6 +69,6 @@ Similarly, the `network.sh` script has been enhanced so that it can use `podman`
 CONTAINER_CLI=podman ./network.sh up
 ````
 
-As there is  Docker-Daemon when using podman, only the `./network.sh deployCCAAS` command will work. Following the Chaincode-as-a-service Tutorial above should work. 
+As there is no Docker-Daemon when using podman, only the `./network.sh deployCCAAS` command will work. Following the Chaincode-as-a-service Tutorial above should work. 
 
 

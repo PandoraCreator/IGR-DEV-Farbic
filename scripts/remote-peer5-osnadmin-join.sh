@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ensure_fabric_binaries
 export PATH="${HOME}/fabric-samples/bin:${HOME}/bin:${IGR_NETWORK}/../bin:${PATH}"
 
-export CHANNEL_NAME="${CHANNEL_NAME:-mychannel}"
+export CHANNEL_NAME="${CHANNEL_NAME:-igrchannel}"
 # shellcheck source=load-ops-env.sh
 . "${SCRIPT_DIR}/load-ops-env.sh"
 load_ops_env

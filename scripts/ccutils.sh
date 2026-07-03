@@ -12,6 +12,14 @@ _lifecycle_wait_flags() {
   fi
 }
 
+
+# Localhost multi-peer CLI: one CORE_PEER_TLS_SERVERHOSTOVERRIDE breaks commit/invoke.
+_unset_localhost_tls_host_override() {
+  if [[ "${LOCAL_FABRIC_NETWORK:-}" == "1" ]]; then
+    unset CORE_PEER_TLS_SERVERHOSTOVERRIDE
+  fi
+}
+
 # installChaincode PEER ORG
 function installChaincode() {
   ORG=$1
@@ -47,7 +55,7 @@ function approveForMyOrg() {
   setGlobals $ORG
   _lifecycle_wait_flags
   set -x
-  peer lifecycle chaincode approveformyorg -o ${FABRIC_ORDERER_HOST:-localhost}:${FABRIC_ORDERER_PORT:-9001} --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" --channelID $CHANNEL_NAME --name ${CC_NAME} --version ${CC_VERSION} --package-id ${PACKAGE_ID} --sequence ${CC_SEQUENCE} "${LIFECYCLE_WAIT_FLAGS[@]}" ${INIT_REQUIRED:-} ${CC_END_POLICY:-} ${CC_COLL_CONFIG:-} >&log.txt
+  peer lifecycle chaincode approveformyorg -o ${FABRIC_ORDERER_HOST:-localhost}:${FABRIC_ORDERER_PORT:-8001} --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" --channelID $CHANNEL_NAME --name ${CC_NAME} --version ${CC_VERSION} --package-id ${PACKAGE_ID} --sequence ${CC_SEQUENCE} "${LIFECYCLE_WAIT_FLAGS[@]}" ${INIT_REQUIRED:-} ${CC_END_POLICY:-} ${CC_COLL_CONFIG:-} >&log.txt
   res=$?
   { set +x; } 2>/dev/null
   cat log.txt
@@ -96,8 +104,9 @@ function commitChaincodeDefinition() {
   # peer (if join was successful), let's supply it directly as we know
   # it using the "-o" option
   _lifecycle_wait_flags
+  _unset_localhost_tls_host_override
   set -x
-  peer lifecycle chaincode commit -o ${FABRIC_ORDERER_HOST:-localhost}:${FABRIC_ORDERER_PORT:-9001} --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" --channelID $CHANNEL_NAME --name ${CC_NAME} "${PEER_CONN_PARMS[@]}" --version ${CC_VERSION} --sequence ${CC_SEQUENCE} "${LIFECYCLE_WAIT_FLAGS[@]}" ${INIT_REQUIRED:-} ${CC_END_POLICY:-} ${CC_COLL_CONFIG:-} >&log.txt
+  peer lifecycle chaincode commit -o ${FABRIC_ORDERER_HOST:-localhost}:${FABRIC_ORDERER_PORT:-8001} --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" --channelID $CHANNEL_NAME --name ${CC_NAME} "${PEER_CONN_PARMS[@]}" --version ${CC_VERSION} --sequence ${CC_SEQUENCE} "${LIFECYCLE_WAIT_FLAGS[@]}" ${INIT_REQUIRED:-} ${CC_END_POLICY:-} ${CC_COLL_CONFIG:-} >&log.txt
   res=$?
   { set +x; } 2>/dev/null
   cat log.txt
@@ -149,9 +158,10 @@ function chaincodeInvokeInit() {
     # while 'peer chaincode' command can get the orderer endpoint from the
     # peer (if join was successful), let's supply it directly as we know
     # it using the "-o" option
+    _unset_localhost_tls_host_override
     set -x
     infoln "invoke fcn call:${fcn_call}"
-    peer chaincode invoke -o localhost:${FABRIC_ORDERER_PORT:-9001} --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" -C $CHANNEL_NAME -n ${CC_NAME} "${PEER_CONN_PARMS[@]}" --isInit -c ${fcn_call} >&log.txt
+    peer chaincode invoke -o localhost:${FABRIC_ORDERER_PORT:-8001} --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" -C $CHANNEL_NAME -n ${CC_NAME} "${PEER_CONN_PARMS[@]}" --isInit -c ${fcn_call} >&log.txt
     res=$?
     { set +x; } 2>/dev/null
     let rc=$res
@@ -315,8 +325,9 @@ chaincodeInvoke() {
   while [ $rc -ne 0 -a $COUNTER -lt $MAX_RETRY ]; do
     sleep $DELAY
     infoln "Attempting to Invoke on peer0.org${ORG}, Retry after $DELAY seconds."
+    _unset_localhost_tls_host_override
     set -x
-    peer chaincode invoke -o localhost:${FABRIC_ORDERER_PORT:-9001} -C $CHANNEL_NAME -n ${CC_NAME} -c ${CC_INVOKE_CONSTRUCTOR} --tls --cafile $ORDERER_CA  --peerAddresses localhost:7051 --tlsRootCertFiles $PEER0_ORG1_CA --peerAddresses localhost:9051 --tlsRootCertFiles $PEER0_ORG2_CA  >&log.txt
+    peer chaincode invoke -o localhost:${FABRIC_ORDERER_PORT:-8001} -C $CHANNEL_NAME -n ${CC_NAME} -c ${CC_INVOKE_CONSTRUCTOR} --tls --cafile $ORDERER_CA  --peerAddresses localhost:7051 --tlsRootCertFiles $PEER0_ORG1_CA --peerAddresses localhost:9051 --tlsRootCertFiles $PEER0_ORG2_CA  >&log.txt
     res=$?
     { set +x; } 2>/dev/null
     let rc=$res

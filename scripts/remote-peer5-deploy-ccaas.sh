@@ -23,12 +23,12 @@ docker_cmd() {
 }
 
 IGR_NETWORK="${IGR_NETWORK:-/opt/igr-network}"
-CC_NAME="${CC_NAME:-asset_registry}"
+CC_NAME="${CC_NAME:-igr_anchor}"
 CC_VERSION="${CC_VERSION:-1.0}"
 CC_SEQUENCE="${CC_SEQUENCE:-1}"
 CHANNEL_NAME="${CHANNEL_NAME:-igrchannel}"
-CC_IMAGE="${CC_IMAGE:-igr_asset_registry_ccaas}"
-CC_CONTAINER="${CC_CONTAINER:-igr_asset_registry_ccaas}"
+CC_IMAGE="${CC_IMAGE:-igr_anchor_ccaas}"
+CC_CONTAINER="${CC_CONTAINER:-igr_anchor_ccaas}"
 
 cd "$IGR_NETWORK"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,6 +51,7 @@ load_ops_env
 PEER1_PORT_PEER="${PEER1_PORT_PEER:-5001}"
 PEER2_PORT_PEER="${PEER2_PORT_PEER:-6001}"
 PEER3_PORT_PEER="${PEER3_PORT_PEER:-7001}"
+PEER5_PORT_PEER="${PEER5_PORT_PEER:-9001}"
 CC_PORT="${OPS_PORT_CHAINCODE:-8003}"
 CC_ADDR="${CC_EXTERNAL_ADDRESS:-chaincode.igr.example.com:${CC_PORT}}"
 _resolve_chaincode_path() {
@@ -73,7 +74,7 @@ if ! CHAINCODE_PATH="$(_resolve_chaincode_path)"; then
 fi
 export CHAINCODE_PATH
 
-export PEER1_PORT_PEER PEER2_PORT_PEER PEER3_PORT_PEER
+export PEER1_PORT_PEER PEER2_PORT_PEER PEER3_PORT_PEER PEER5_PORT_PEER
 export FABRIC_ORDERER_HOST="${FABRIC_ORDERER_HOST:-127.0.0.1}"
 export ORDERER_CA="$IGR_NETWORK/organizations/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem"
 export CHANNEL_NAME CC_NAME CC_VERSION CC_SEQUENCE
@@ -229,6 +230,7 @@ echo "==> Installing chaincode package on peers"
 install_on_peer IGRPrimaryMSP "$TLS_PRIMARY" "$MSP_PRIMARY" "peer0.IGRPrimary.example.com:${PEER1_PORT_PEER}"
 install_on_peer IGRPrimaryMSP "$TLS_PRIMARY" "$MSP_PRIMARY" "peer1.IGRPrimary.example.com:${PEER2_PORT_PEER}"
 install_on_peer IGRBankMSP "$TLS_BANK" "$MSP_BANK" "peer0.IGRBank.example.com:${PEER3_PORT_PEER}"
+install_on_peer IGRBankMSP "$TLS_BANK" "$MSP_BANK" "peer1.IGRBank.example.com:${PEER5_PORT_PEER}"
 
 # ccutils/envVar use optional vars; avoid set -u errors when sourced
 export VERBOSE="${VERBOSE:-false}"
@@ -288,6 +290,6 @@ queryCommitted 2
 echo ""
 echo "Deploy OK: ${CC_NAME} v${CC_VERSION} seq ${CC_SEQUENCE} on ${CHANNEL_NAME}"
 echo "PACKAGE_ID=${PACKAGE_ID}"
-echo "Test invoke (IGRPrimary admin):"
-echo "  peer chaincode query -C ${CHANNEL_NAME} -n ${CC_NAME} -c '{\"function\":\"GetDocNOIs\",\"Args\":[\"2026SRO42DOC991\"]}'"
+echo "Test invoke (IGRPrimary admin; run on peer-4 OPS .78):"
+echo "  peer chaincode query -C ${CHANNEL_NAME} -n ${CC_NAME} -c '{\"function\":\"GetLatestAnchor\",\"Args\":[\"MH:PUNE:SR42:2026:991\"]}'"
 echo "  Or run: bash scripts/verify-ccaas-deploy.sh"

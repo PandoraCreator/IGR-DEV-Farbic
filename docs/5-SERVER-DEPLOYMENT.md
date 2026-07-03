@@ -15,8 +15,8 @@ Step-by-step runbook for the ESDS-3709-IGR-Blockchain VMs. Work through sections
 | ESDS-3709-IGR-Blockchain peer-1 | peer-1 | `10.48.59.70` | `peer0.IGRPrimary.example.com` + CouchDB |
 | ESDS-3709-IGR-Blockchain peer-2 | peer-2 | `10.48.59.76` | `peer1.IGRPrimary.example.com` + CouchDB |
 | ESDS-3709-IGR-Blockchain peer-3 | peer-3 | `10.48.59.77` | `peer0.IGRBank.example.com` + CouchDB |
-| ESDS-3709-IGR-Blockchain peer-4 | peer-4 | `10.48.59.78` | `peer1.IGRBank.example.com` + CouchDB |
-| ESDS-3709-IGR-Blockchain peer-5 | peer-5 | `10.48.59.79` | Orderer + Fabric CAs + chaincode (CCAAS) + admin CLI |
+| ESDS-3709-IGR-Blockchain peer-4 | peer-4 | `10.48.59.78` | Orderer + Fabric CAs + CCAAS + admin CLI (OPS) |
+| ESDS-3709-IGR-Blockchain peer-5 | peer-5 | `10.48.59.79` | `peer1.IGRBank.example.com` + CouchDB |
 
 | Setting | Value |
 |---------|--------|
@@ -24,7 +24,7 @@ Step-by-step runbook for the ESDS-3709-IGR-Blockchain VMs. Work through sections
 | SSH port | `5522` |
 | OS | Ubuntu 24.04 |
 | Default repo path | `/opt/igr-network` |
-| Channel name | `mychannel` |
+| Channel name | `igrchannel` |
 
 ### Port plan (ESDS firewall — only these ports are open)
 
@@ -33,24 +33,24 @@ Load mapping from credentials: `source docs/servers.credentials.local`
 | Role | peer-1 | peer-2 | peer-3 | peer-4 | peer-5 |
 |------|--------|--------|--------|--------|--------|
 | **Open ports** | 5001–5004 | 6001–6004 | 7001–7004 | 8001–8004 | 9001–9004 |
-| Peer (gossip / endorser) | **5001** | **6001** | **7001** | **8001** | — |
-| Chaincode listen | **5002** | **6002** | **7002** | **8002** | — |
-| CouchDB | **5003** | **6003** | **7003** | **8003** | — |
+| Peer (gossip / endorser) | **5001** | **6001** | **7001** | — | **9001** |
+| Chaincode listen | **5002** | **6002** | **7002** | — | **9002** |
+| CouchDB | **5003** | **6003** | **7003** | — | **9003** |
 | Operations / metrics | **5004** | **6004** | **7004** | **8004** | **9004** |
-| Orderer client | — | — | — | — | **9001** |
-| Orderer admin (osnadmin) | — | — | — | — | **9002** |
-| CCAAS chaincode | — | — | — | — | **9003** |
-| Fabric CAs | — | — | — | — | localhost **7054**, **8054**, **9054** only |
+| Orderer client | — | — | — | **8001** | — |
+| Orderer admin (osnadmin) | — | — | — | **8002** | — |
+| CCAAS chaincode | — | — | — | **8003** | — |
+| Fabric CAs | — | — | — | localhost **7054**, **8054**, **9054** | — |
 
 **Convention (per peer host):** `*01` = peer, `*02` = chaincode, `*03` = CouchDB, `*04` = ops.
 
 **Anchor peers (channel config):** IGRPrimary `peer0` → port **5001**; IGRBank `peer0` → port **7001**.
 
-**Orderer address (peers + CLI):** `orderer.example.com:9001`
+**Orderer address (peers + CLI):** `orderer.example.com:8001`
 
-**CCAAS package address:** `chaincode.igr.example.com:9003`
+**CCAAS package address:** `chaincode.igr.example.com:8003`
 
-Fabric CAs on peer-5 are **not** in the open-port list; enroll identities on peer-5 using `localhost:7054` / `8054` / `9054`.
+Fabric CAs on peer-4 are **not** in the open-port list; enroll identities on peer-4 using `localhost:7054` / `8054` / `9054`.
 
 **CouchDB on peer hosts:** publish Couch as `-p ${PEERn_PORT_COUCH}:5984`. If the peer runs in Docker, use `--network host` on peer + Couch, or set `CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS` to the Docker bridge gateway IP and port `${PEERn_PORT_COUCH}` (e.g. `172.17.0.1:5003`).
 
@@ -67,8 +67,8 @@ source docs/servers.credentials.local
 ssh -p $SSH_PORT ${SSH_USER}@${PEER1_HOST}   # peer-1
 ssh -p $SSH_PORT ${SSH_USER}@${PEER2_HOST}   # peer-2
 ssh -p $SSH_PORT ${SSH_USER}@${PEER3_HOST}   # peer-3
-ssh -p $SSH_PORT ${SSH_USER}@${PEER4_HOST}   # peer-4
-ssh -p $SSH_PORT ${SSH_USER}@${PEER5_HOST}   # peer-5 (ops)
+ssh -p $SSH_PORT ${SSH_USER}@${PEER4_HOST}   # peer-4 (OPS)
+ssh -p $SSH_PORT ${SSH_USER}@${PEER5_HOST}   # peer-5 (peer1 IGRBank)
 ```
 
 Optional `~/.ssh/config` snippet (passwordless keys recommended for production):
@@ -118,11 +118,11 @@ Run on **each** VM:
 
 ```bash
 sudo tee -a /etc/hosts <<'EOF'
-10.48.59.79  orderer.example.com chaincode.igr.example.com
+10.48.59.78  orderer.example.com chaincode.igr.example.com
 10.48.59.70  peer0.IGRPrimary.example.com
 10.48.59.76  peer1.IGRPrimary.example.com
 10.48.59.77  peer0.IGRBank.example.com
-10.48.59.78  peer1.IGRBank.example.com
+10.48.59.79  peer1.IGRBank.example.com
 EOF
 ```
 
@@ -135,9 +135,9 @@ ping -c1 peer0.IGRBank.example.com
 
 ---
 
-## Repo fixes (peer-5, once)
+## Repo fixes (peer-4 OPS, once)
 
-Do these on **peer-5** before first channel creation.
+Do these on **peer-4 OPS** before first channel creation. Scripts named `remote-peer5-*` run here via `scripts/load-ops-env.sh` (legacy `PEER5_*` env aliases).
 
 ### 1. Add `ChannelUsingRaft` profile
 
@@ -159,13 +159,13 @@ Do these on **peer-5** before first channel creation.
       Capabilities: *ApplicationCapabilities
 ```
 
-### 2. Do not use `./network.sh up -ca` as-is
+### 2. `./network.sh up -ca` (local dev)
 
-`network.sh` waits for wrong CA paths (`fabric-ca/org1`). Use **manual CA + enroll** in section peer-5 below, or fix paths in `network.sh` / `registerEnroll.sh` first.
+`network.sh` CA paths and [organizations/fabric-ca/registerEnroll.sh](../organizations/fabric-ca/registerEnroll.sh) use canonical `IGRPrimary.example.com` / `IGRBank.example.com` MSP directories. For production OPS, prefer [scripts/remote-peer5-bootstrap.sh](../scripts/remote-peer5-bootstrap.sh) on peer-4.
 
-### 3. `registerEnroll.sh` path casing
+### 3. MSP path casing
 
-Script references `igrprimary` / `fabric-ca/igrprimary`; live dirs are `IGRPrimary` / `fabric-ca/IGRPrimary`. Use the manual enroll commands below (correct paths).
+Enrollment paths must match [configtx/configtx.yaml](../configtx/configtx.yaml). See [CA-ENROLLMENT.md](CA-ENROLLMENT.md). Run `bash scripts/check-msp-path-casing.sh` before committing enrollment changes.
 
 ---
 
@@ -181,7 +181,7 @@ sudo usermod -aG docker igr
 docker --version
 ```
 
-On **peer-5** (admin tools):
+On **peer-4 OPS** (admin tools):
 
 ```bash
 # Install Fabric binaries (adjust version to match fabric-peer image)
@@ -196,9 +196,9 @@ Firewall: open ports from the [port plan](#port-plan) for that host (ufw/securit
 
 ---
 
-# peer-5 (`10.48.59.79`) — CAs, crypto, orderer, channel, chaincode
+# peer-4 (`10.48.59.78`) — CAs, crypto, orderer, channel, chaincode (OPS)
 
-SSH: `ssh -p 5522 igr@10.48.59.79`
+SSH: `ssh -p 5522 igr@10.48.59.78`
 
 ```bash
 export IGR_NETWORK=/opt/igr-network
@@ -293,7 +293,7 @@ fabric-ca-client enroll -u https://peer1:peer1pw@localhost:8054 --caname ca-IGRB
 
 fabric-ca-client enroll -u https://peer1:peer1pw@localhost:8054 --caname ca-IGRBank \
   -M "$PWD/organizations/peerOrganizations/IGRBank.example.com/peers/peer1.IGRBank.example.com/tls" \
-  --enrollment.profile tls --csr.hosts peer1.IGRBank.example.com --csr.hosts 10.48.59.78 \
+  --enrollment.profile tls --csr.hosts peer1.IGRBank.example.com --csr.hosts 10.48.59.79 \
   --tls.certfiles "$CA_BANK"
 
 fabric-ca-client enroll -u https://igrbankadmin:igrbankadminpw@localhost:8054 --caname ca-IGRBank \
@@ -312,6 +312,7 @@ done
 
 ```bash
 cd $IGR_NETWORK
+source scripts/ca-enroll-helpers.sh
 source organizations/fabric-ca/registerEnroll.sh
 createOrderer
 ```
@@ -320,7 +321,7 @@ If `createOrderer` fails on paths, enroll only `orderer` (single node) under `or
 
 ## 5.5 Distribute peer crypto to peer-1 … peer-4
 
-From **peer-5**:
+From **peer-4 OPS**:
 
 ```bash
 source docs/servers.credentials.local
@@ -386,7 +387,7 @@ cd $IGR_NETWORK
 export PATH=$HOME/fabric-samples/bin:$PATH
 export FABRIC_CFG_PATH=$PWD/configtx
 mkdir -p channel-artifacts
-export CHANNEL_NAME=mychannel
+export CHANNEL_NAME=igrchannel
 
 configtxgen -profile ChannelUsingRaft \
   -outputBlock ./channel-artifacts/${CHANNEL_NAME}.block \
@@ -571,14 +572,20 @@ Same pattern as peer-1 with **IGRBank** paths:
 
 ---
 
-# peer-4 (`10.48.59.78`) — peer1 IGRBank
+# peer-4 (`10.48.59.78`) — OPS (orderer, CAs, CCAAS, admin CLI)
 
-SSH: `ssh -p 5522 igr@10.48.59.78`
+This host runs orderer, Fabric CAs, CCAAS chaincode (`:8003`), and admin CLI. It is **not** an endorsing peer.
 
-- Credentials `PEER4_*` ports (**8001–8004**)
-- `CORE_PEER_ADDRESS=peer1.IGRBank.example.com:8001`
+---
+
+# peer-5 (`10.48.59.79`) — peer1 IGRBank
+
+SSH: `ssh -p 5522 igr@10.48.59.79`
+
+- Credentials `PEER5_*` ports (**9001–9004**)
+- `CORE_PEER_ADDRESS=peer1.IGRBank.example.com:9001`
 - `CORE_PEER_GOSSIP_BOOTSTRAP=peer0.IGRBank.example.com:7001`
-- `CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.IGRBank.example.com:8001`
+- `CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.IGRBank.example.com:9001`
 
 ---
 
@@ -587,12 +594,12 @@ SSH: `ssh -p 5522 igr@10.48.59.78`
 | # | Where | Task |
 |---|--------|------|
 | 1 | All | `/etc/hosts`, Docker, firewall |
-| 2 | peer-5 | Repo fixes (`ChannelUsingRaft`) |
-| 3 | peer-5 | Start CAs → enroll → orderer |
-| 4 | peer-5 | Rsync crypto to peer-1…4 |
-| 5 | peer-1…4 | CouchDB + peer containers |
-| 6 | peer-5 | Create channel, join 4 peers, anchors |
-| 7 | peer-5 | Chaincode image + lifecycle |
+| 2 | peer-4 OPS | Repo fixes (`ChannelUsingRaft`) |
+| 3 | peer-4 OPS | Start CAs → enroll → orderer |
+| 4 | peer-4 OPS | Rsync crypto to peer-1…3, peer-5 |
+| 5 | peer-1…3, peer-5 | CouchDB + peer containers |
+| 6 | peer-4 OPS | Create channel, join 4 peers, anchors |
+| 7 | peer-4 OPS | Chaincode image + lifecycle |
 | 8 | All | Verification (below) |
 
 ---
@@ -601,12 +608,12 @@ SSH: `ssh -p 5522 igr@10.48.59.78`
 
 | Check | Command (where) |
 |-------|------------------|
-| Orderer | `docker logs orderer.example.com` (peer-5) |
-| Peers running | `docker ps` (peer-1…4) |
-| Channel | `peer channel list` with each `CORE_PEER_ADDRESS` (peer-5) |
-| CCAAS port | `nc -zv chaincode.igr.example.com 9003` (peer-1) |
+| Orderer | `docker logs orderer.example.com` (peer-4 OPS) |
+| Peers running | `docker ps` (peer-1, peer-2, peer-3, peer-5) |
+| Channel | `peer channel list` with each `CORE_PEER_ADDRESS` (peer-4 OPS CLI) |
+| CCAAS port | `nc -zv chaincode.igr.example.com 8003` (from any peer host) |
 | Open ports | `nc -zv peer-host <port>` for each of 5001–5004 / 6001–6004 / etc. |
-| Chaincode | `peer lifecycle chaincode querycommitted -C mychannel` (peer-5) |
+| Chaincode | `peer lifecycle chaincode querycommitted -C igrchannel` (peer-4 OPS) |
 
 ---
 

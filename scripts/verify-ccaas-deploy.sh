@@ -15,7 +15,7 @@ export PATH="${HOME}/fabric-samples/bin:${HOME}/bin:${PATH}"
 export FABRIC_CFG_PATH="$PWD/compose/docker/peercfg"
 export TEST_NETWORK_HOME="$PWD"
 export CHANNEL_NAME="${CHANNEL_NAME:-igrchannel}"
-export CC_NAME="${CC_NAME:-asset_registry}"
+export CC_NAME="${CC_NAME:-igr_anchor}"
 
 # shellcheck source=load-ops-env.sh
 . "${SCRIPT_DIR}/load-ops-env.sh"
@@ -26,15 +26,15 @@ load_ops_env
 # shellcheck source=envVar.sh
 . "${SCRIPT_DIR}/envVar.sh"
 
-DOC_ID="${DOC_ID:-2026SRO42DOC991}"
+DOC_REF="${DOC_REF:-MH:PUNE:SR42:2026:991}"
 
 echo "=== 1. CCAAS container ==="
-if docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null | grep -E 'igr_asset_registry|NAMES'; then
+if docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null | grep -E 'igr_anchor|NAMES'; then
   :
 elif [[ -n "${SUDO_PASS:-}" ]]; then
-  echo "${SUDO_PASS}" | sudo -S docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E 'igr_asset_registry|NAMES' || true
+  echo "${SUDO_PASS}" | sudo -S docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E 'igr_anchor|NAMES' || true
 else
-  sudo docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E 'igr_asset_registry|NAMES' || true
+  sudo docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E 'igr_anchor|NAMES' || true
 fi
 
 echo ""
@@ -53,9 +53,9 @@ echo "=== 4. Channels joined on peer-1 ==="
 peer channel list || echo "FAILED — peer-1 may not have joined ${CHANNEL_NAME}"
 
 echo ""
-echo "=== 5. Chaincode query: GetDocNOIs ==="
+echo "=== 5. Chaincode query: GetLatestAnchor ==="
 peer chaincode query -C "$CHANNEL_NAME" -n "$CC_NAME" \
-  -c "{\"function\":\"GetDocNOIs\",\"Args\":[\"${DOC_ID}\"]}" || {
+  -c "{\"function\":\"GetLatestAnchor\",\"Args\":[\"${DOC_REF}\"]}" || {
   echo ""
   echo "Query failed. Common fixes:"
   echo "  - Re-join channel: bash scripts/remote-peer5-channel-join-anchors.sh"

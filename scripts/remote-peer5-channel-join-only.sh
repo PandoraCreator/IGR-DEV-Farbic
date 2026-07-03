@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Re-join mychannel on all remote peers (no anchor update). Run on peer-4 OPS.
+# Re-join igrchannel on all remote peers (no anchor update). Run on peer-4 OPS.
 set -euo pipefail
 
 IGR_NETWORK="${IGR_NETWORK:-/opt/igr-network}"
 cd "$IGR_NETWORK"
-CHANNEL_NAME="${CHANNEL_NAME:-mychannel}"
+CHANNEL_NAME="${CHANNEL_NAME:-igrchannel}"
 BLOCK="${IGR_NETWORK}/channel-artifacts/${CHANNEL_NAME}.block"
 
 [[ -f "$BLOCK" ]] || { echo "Missing $BLOCK — run bootstrap / configtxgen first" >&2; exit 1; }
@@ -21,6 +21,7 @@ export FABRIC_CFG_PATH="$PWD/compose/docker/peercfg"
 PEER1_PORT_PEER="${PEER1_PORT_PEER:-5001}"
 PEER2_PORT_PEER="${PEER2_PORT_PEER:-6001}"
 PEER3_PORT_PEER="${PEER3_PORT_PEER:-7001}"
+PEER5_PORT_PEER="${PEER5_PORT_PEER:-9001}"
 
 _join() {
   local msp=$1 tls=$2 msppath=$3 addr=$4
@@ -42,5 +43,6 @@ MSP_B="${IGR_NETWORK}/organizations/peerOrganizations/IGRBank.example.com/users/
 _join IGRPrimaryMSP "$TLS_P" "$MSP_P" "peer0.IGRPrimary.example.com:${PEER1_PORT_PEER}"
 _join IGRPrimaryMSP "$TLS_P" "$MSP_P" "peer1.IGRPrimary.example.com:${PEER2_PORT_PEER}"
 _join IGRBankMSP "$TLS_B" "$MSP_B" "peer0.IGRBank.example.com:${PEER3_PORT_PEER}"
+_join IGRBankMSP "$TLS_B" "$MSP_B" "peer1.IGRBank.example.com:${PEER5_PORT_PEER}"
 
 echo "Join OK for ${CHANNEL_NAME}"

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Build CCAAS image on a machine with Docker Hub access (your laptop), save for peer-4.
-# Output: channel-artifacts/igr_asset_registry_ccaas.tar.gz
+# Output: channel-artifacts/igr_anchor_ccaas.tar.gz
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PARENT="$(cd "$ROOT/.." && pwd)"
-CC_IMAGE="${CC_IMAGE:-igr_asset_registry_ccaas}"
+CC_IMAGE="${CC_IMAGE:-igr_anchor_ccaas}"
 CC_PORT="${CC_PORT:-8003}"
 OUT="${OUT:-$ROOT/channel-artifacts/${CC_IMAGE}.tar.gz}"
 

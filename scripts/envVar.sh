@@ -33,6 +33,11 @@ else
   export FABRIC_ORDERER_ADMIN_PORT="${PEER5_PORT_ORDERER_ADMIN:-8002}"
 fi
 
+# Local network.sh uses docker compose on localhost (7051/9051), not prod VM hostnames.
+local_fabric_network() {
+  [[ "${LOCAL_FABRIC_NETWORK:-}" == "1" ]]
+}
+
 export CORE_PEER_TLS_ENABLED=true
 export ORDERER_CA=${TEST_NETWORK_HOME}/organizations/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem
 export PEER0_ORG1_CA=${TEST_NETWORK_HOME}/organizations/peerOrganizations/IGRPrimary.example.com/tlsca/tlsca.IGRPrimary.example.com-cert.pem
@@ -52,19 +57,29 @@ setGlobals() {
     export CORE_PEER_LOCALMSPID=IGRPrimaryMSP
     export CORE_PEER_TLS_ROOTCERT_FILE=$PEER0_ORG1_CA
     export CORE_PEER_MSPCONFIGPATH=${TEST_NETWORK_HOME}/organizations/peerOrganizations/IGRPrimary.example.com/users/Admin@IGRPrimary.example.com/msp
-    if [ -n "${PEER1_PORT_PEER:-}" ]; then
+    if local_fabric_network; then
+      export CORE_PEER_ADDRESS=localhost:7051
+      export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer0.IGRPrimary.example.com
+    elif [ -n "${PEER1_PORT_PEER:-}" ]; then
       export CORE_PEER_ADDRESS=peer0.IGRPrimary.example.com:${PEER1_PORT_PEER}
+      unset CORE_PEER_TLS_SERVERHOSTOVERRIDE
     else
       export CORE_PEER_ADDRESS=localhost:7051
+      export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer0.IGRPrimary.example.com
     fi
   elif [ $USING_ORG -eq 2 ]; then
     export CORE_PEER_LOCALMSPID=IGRBankMSP
     export CORE_PEER_TLS_ROOTCERT_FILE=$PEER0_ORG2_CA
     export CORE_PEER_MSPCONFIGPATH=${TEST_NETWORK_HOME}/organizations/peerOrganizations/IGRBank.example.com/users/Admin@IGRBank.example.com/msp
-    if [ -n "${PEER3_PORT_PEER:-}" ]; then
+    if local_fabric_network; then
+      export CORE_PEER_ADDRESS=localhost:9051
+      export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer0.IGRBank.example.com
+    elif [ -n "${PEER3_PORT_PEER:-}" ]; then
       export CORE_PEER_ADDRESS=peer0.IGRBank.example.com:${PEER3_PORT_PEER}
+      unset CORE_PEER_TLS_SERVERHOSTOVERRIDE
     else
       export CORE_PEER_ADDRESS=localhost:9051
+      export CORE_PEER_TLS_SERVERHOSTOVERRIDE=peer0.IGRBank.example.com
     fi
   elif [ $USING_ORG -eq 3 ]; then
     export CORE_PEER_LOCALMSPID=Org3MSP

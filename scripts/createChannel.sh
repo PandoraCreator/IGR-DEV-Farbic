@@ -8,7 +8,7 @@ DELAY="$2"
 MAX_RETRY="$3"
 VERBOSE="$4"
 BFT="$5"
-: ${CHANNEL_NAME:="mychannel"}
+: ${CHANNEL_NAME:="igrchannel"}
 : ${DELAY:="3"}
 : ${MAX_RETRY:="5"}
 : ${VERBOSE:="false"}
@@ -62,6 +62,10 @@ createChannel() {
     fi
 		res=$?
 		{ set +x; } 2>/dev/null
+		if [ $res -ne 0 ] && grep -q "channel already exists" log.txt 2>/dev/null; then
+			warnln "Channel '$CHANNEL_NAME' already exists on the orderer; continuing (run './network.sh down' for a full reset)"
+			res=0
+		fi
 		let rc=$res
 		COUNTER=$(expr $COUNTER + 1)
 	done
@@ -83,6 +87,10 @@ joinChannel() {
     peer channel join -b $BLOCKFILE >&log.txt
     res=$?
     { set +x; } 2>/dev/null
+		if [ $res -ne 0 ] && grep -qE "already exists with state|ledger \[${CHANNEL_NAME}\] already exists" log.txt 2>/dev/null; then
+			warnln "peer0.org${ORG} already joined channel '$CHANNEL_NAME'; continuing (run './network.sh down' for a full reset)"
+			res=0
+		fi
 		let rc=$res
 		COUNTER=$(expr $COUNTER + 1)
 	done

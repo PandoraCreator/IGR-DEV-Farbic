@@ -1,14 +1,14 @@
 NodeOUs:
   Enable: true
   ClientOUIdentifier:
-    Certificate: cacerts/ca.IGRBank.example.com-cert.pem
+    Certificate: cacerts/localhost-8054-ca-IGRBank.pem
     OrganizationalUnitIdentifier: client
   PeerOUIdentifier:
-    Certificate: cacerts/ca.IGRBank.example.com-cert.pem
+    Certificate: cacerts/localhost-8054-ca-IGRBank.pem
     OrganizationalUnitIdentifier: peer
   AdminOUIdentifier:
-    Certificate: cacerts/ca.IGRBank.example.com-cert.pem
+    Certificate: cacerts/localhost-8054-ca-IGRBank.pem
     OrganizationalUnitIdentifier: admin
   OrdererOUIdentifier:
-    Certificate: cacerts/ca.IGRBank.example.com-cert.pem
+    Certificate: cacerts/localhost-8054-ca-IGRBank.pem
     OrganizationalUnitIdentifier: orderer

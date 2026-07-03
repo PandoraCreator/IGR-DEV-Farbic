@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CC_IMAGE="${CC_IMAGE:-igr_asset_registry_ccaas}"
+CC_IMAGE="${CC_IMAGE:-igr_anchor_ccaas}"
 BUNDLE="${BUNDLE:-$ROOT/channel-artifacts/${CC_IMAGE}.tar.gz}"
 
 CREDS="${ROOT}/docs/servers.credentials.local"

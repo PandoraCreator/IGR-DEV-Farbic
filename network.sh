@@ -21,6 +21,8 @@ ROOTDIR=$(cd "$(dirname "$0")" && pwd)
 export PATH=${ROOTDIR}/../bin:${PWD}/../bin:$PATH
 export FABRIC_CFG_PATH=${PWD}/configtx
 export VERBOSE=false
+# Local docker compose (7051/9051) — do not use five-server peer hostnames/ports from servers.credentials.local
+export LOCAL_FABRIC_NETWORK=1
 
 # push to the required directory & set a trap to go back if needed
 pushd ${ROOTDIR} > /dev/null
@@ -42,7 +44,7 @@ function clearContainers() {
   infoln "Removing remaining containers"
   ${CONTAINER_CLI} rm -f $(${CONTAINER_CLI} ps -aq --filter label=service=hyperledger-fabric) 2>/dev/null || true
   ${CONTAINER_CLI} rm -f $(${CONTAINER_CLI} ps -aq --filter name='dev-peer*') 2>/dev/null || true
-  ${CONTAINER_CLI} kill "$(${CONTAINER_CLI} ps -q --filter name=ccaas)" 2>/dev/null || true
+  ${CONTAINER_CLI} rm -f $(${CONTAINER_CLI} ps -aq --filter name=ccaas) 2>/dev/null || true
 }
 
 # Delete any images that were generated as a part of this setup
@@ -229,7 +231,9 @@ function createOrgs() {
     # Make sure CA files have been created
     while :
     do
-      if [ ! -f "organizations/fabric-ca/org1/tls-cert.pem" ]; then
+      if [ ! -f "organizations/fabric-ca/IGRPrimary/ca-cert.pem" ] \
+        || [ ! -f "organizations/fabric-ca/IGRBank/ca-cert.pem" ] \
+        || [ ! -f "organizations/fabric-ca/ordererOrg/ca-cert.pem" ]; then
         sleep 1
       else
         break
@@ -237,13 +241,13 @@ function createOrgs() {
     done
 
     # Make sure CA service is initialized and can accept requests before making register and enroll calls
-    export FABRIC_CA_CLIENT_HOME=${PWD}/organizations/peerOrganizations/org1.example.com/
+    export FABRIC_CA_CLIENT_HOME=${PWD}/organizations/peerOrganizations/IGRPrimary.example.com/
     COUNTER=0
     rc=1
     while [[ $rc -ne 0 && $COUNTER -lt $MAX_RETRY ]]; do
       sleep 1
       set -x
-      fabric-ca-client getcainfo -u https://admin:adminpw@localhost:7054 --caname ca-org1 --tls.certfiles "${PWD}/organizations/fabric-ca/org1/ca-cert.pem"
+      fabric-ca-client getcainfo -u https://admin:adminpw@localhost:7054 --caname ca-IGRPrimary --tls.certfiles "${PWD}/organizations/fabric-ca/IGRPrimary/ca-cert.pem"
       res=$?
     { set +x; } 2>/dev/null
     rc=$res  # Update rc
@@ -430,35 +434,42 @@ function queryChaincode() {
 }
 
 
-# Tear down running network
-function networkDown() {
-  local temp_compose=$COMPOSE_FILE_BASE
-  COMPOSE_FILE_BASE=compose-bft-test-net.yaml
-  COMPOSE_BASE_FILES="-f compose/${COMPOSE_FILE_BASE} -f compose/${CONTAINER_CLI}/${CONTAINER_CLI}-${COMPOSE_FILE_BASE}"
-  COMPOSE_COUCH_FILES="-f compose/${COMPOSE_FILE_COUCH} -f compose/compose-couch-volumes.yaml"
-  COMPOSE_CA_FILES="-f compose/${COMPOSE_FILE_CA}"
-  COMPOSE_FILES="${COMPOSE_BASE_FILES} ${COMPOSE_COUCH_FILES} ${COMPOSE_CA_FILES}"
+# Tear down a compose stack (test-net or BFT) including CA and optional CouchDB overlays
+function composeStackDown() {
+  local stack_base=$1
+  local COMPOSE_BASE_FILES="-f compose/${stack_base} -f compose/${CONTAINER_CLI}/${CONTAINER_CLI}-${stack_base}"
+  local COMPOSE_COUCH_FILES="-f compose/${COMPOSE_FILE_COUCH} -f compose/compose-couch-volumes.yaml"
+  local COMPOSE_CA_FILES="-f compose/${COMPOSE_FILE_CA}"
+  local COMPOSE_FILES="${COMPOSE_BASE_FILES} ${COMPOSE_COUCH_FILES} ${COMPOSE_CA_FILES}"
 
   # stop org3 containers also in addition to org1 and org2, in case we were running sample to add org3
-  COMPOSE_ORG3_BASE_FILES="-f addOrg3/compose/${COMPOSE_FILE_ORG3_BASE} -f addOrg3/compose/${CONTAINER_CLI}/${CONTAINER_CLI}-${COMPOSE_FILE_ORG3_BASE}"
-  COMPOSE_ORG3_COUCH_FILES="-f addOrg3/compose/${COMPOSE_FILE_ORG3_COUCH} -f addOrg3/compose/${CONTAINER_CLI}/${CONTAINER_CLI}-${COMPOSE_FILE_ORG3_COUCH}"
-  COMPOSE_ORG3_CA_FILES="-f addOrg3/compose/${COMPOSE_FILE_ORG3_CA} -f addOrg3/compose/${CONTAINER_CLI}/${CONTAINER_CLI}-${COMPOSE_FILE_ORG3_CA}"
-  COMPOSE_ORG3_FILES="${COMPOSE_ORG3_BASE_FILES} ${COMPOSE_ORG3_COUCH_FILES} ${COMPOSE_ORG3_CA_FILES}"
+  local COMPOSE_ORG3_BASE_FILES="-f addOrg3/compose/${COMPOSE_FILE_ORG3_BASE} -f addOrg3/compose/${CONTAINER_CLI}/${CONTAINER_CLI}-${COMPOSE_FILE_ORG3_BASE}"
+  local COMPOSE_ORG3_COUCH_FILES="-f addOrg3/compose/${COMPOSE_FILE_ORG3_COUCH} -f addOrg3/compose/${CONTAINER_CLI}/${CONTAINER_CLI}-${COMPOSE_FILE_ORG3_COUCH}"
+  local COMPOSE_ORG3_CA_FILES="-f addOrg3/compose/${COMPOSE_FILE_ORG3_CA} -f addOrg3/compose/${CONTAINER_CLI}/${CONTAINER_CLI}-${COMPOSE_FILE_ORG3_CA}"
+  local COMPOSE_ORG3_FILES="${COMPOSE_ORG3_BASE_FILES} ${COMPOSE_ORG3_COUCH_FILES} ${COMPOSE_ORG3_CA_FILES}"
 
   if [ "${CONTAINER_CLI}" == "docker" ]; then
     DOCKER_SOCK=$DOCKER_SOCK ${CONTAINER_CLI_COMPOSE} ${COMPOSE_FILES} ${COMPOSE_ORG3_FILES} down --volumes --remove-orphans
   elif [ "${CONTAINER_CLI}" == "podman" ]; then
-    ${CONTAINER_CLI_COMPOSE} ${COMPOSE_FILES} ${COMPOSE_ORG3_FILES} down --volumes
+    ${CONTAINER_CLI_COMPOSE} ${COMPOSE_FILES} ${COMPOSE_ORG3_FILES} down --volumes --remove-orphans
   else
     fatalln "Container CLI  ${CONTAINER_CLI} not supported"
   fi
+}
 
-  COMPOSE_FILE_BASE=$temp_compose
+# Tear down running network
+function networkDown() {
+  # Default local test network uses compose-test-net.yaml; BFT mode uses compose-bft-test-net.yaml — tear down both.
+  composeStackDown "compose-test-net.yaml"
+  composeStackDown "compose-bft-test-net.yaml"
+
+  # Standalone Fabric CA compose (started before peer/orderer when using -ca)
+  DOCKER_SOCK=$DOCKER_SOCK ${CONTAINER_CLI_COMPOSE} -f compose/${COMPOSE_FILE_CA} down --volumes --remove-orphans 2>/dev/null ||     ${CONTAINER_CLI_COMPOSE} -f compose/${COMPOSE_FILE_CA} down --volumes --remove-orphans 2>/dev/null || true
 
   # Don't remove the generated artifacts -- note, the ledgers are always removed
   if [ "$MODE" != "restart" ]; then
-    # Bring down the network, deleting the volumes
-    ${CONTAINER_CLI} volume rm docker_orderer.example.com docker_peer0.org1.example.com docker_peer0.org2.example.com
+    # Remove any leftover ledger volumes (compose project prefix varies)
+    ${CONTAINER_CLI} volume rm -f       compose_orderer.example.com compose_peer0.IGRPrimary.example.com compose_peer0.IGRBank.example.com       docker_orderer.example.com docker_peer0.org1.example.com docker_peer0.org2.example.com       orderer.example.com peer0.IGRPrimary.example.com peer0.IGRBank.example.com 2>/dev/null || true
     #Cleanup the chaincode containers
     clearContainers
     #Cleanup images
@@ -466,8 +477,8 @@ function networkDown() {
     # remove orderer block and other channel configuration transactions and certs
     ${CONTAINER_CLI} run --rm -v "$(pwd):/data" busybox sh -c 'cd /data && rm -rf system-genesis-block/*.block organizations/peerOrganizations organizations/ordererOrganizations'
     ## remove fabric ca artifacts
-    ${CONTAINER_CLI} run --rm -v "$(pwd):/data" busybox sh -c 'cd /data && rm -rf organizations/fabric-ca/igrprimary/msp organizations/fabric-ca/igrprimary/tls-cert.pem organizations/fabric-ca/igrprimary/ca-cert.pem organizations/fabric-ca/igrprimary/IssuerPublicKey organizations/fabric-ca/igrprimary/IssuerRevocationPublicKey organizations/fabric-ca/igrprimary/fabric-ca-server.db'
-    ${CONTAINER_CLI} run --rm -v "$(pwd):/data" busybox sh -c 'cd /data && rm -rf organizations/fabric-ca/igrbank/msp organizations/fabric-ca/igrbank/tls-cert.pem organizations/fabric-ca/igrbank/ca-cert.pem organizations/fabric-ca/igrbank/IssuerPublicKey organizations/fabric-ca/igrbank/IssuerRevocationPublicKey organizations/fabric-ca/igrbank/fabric-ca-server.db'
+    ${CONTAINER_CLI} run --rm -v "$(pwd):/data" busybox sh -c 'cd /data && rm -rf organizations/fabric-ca/IGRPrimary/msp organizations/fabric-ca/IGRPrimary/tls-cert.pem organizations/fabric-ca/IGRPrimary/ca-cert.pem organizations/fabric-ca/IGRPrimary/IssuerPublicKey organizations/fabric-ca/IGRPrimary/IssuerRevocationPublicKey organizations/fabric-ca/IGRPrimary/fabric-ca-server.db'
+    ${CONTAINER_CLI} run --rm -v "$(pwd):/data" busybox sh -c 'cd /data && rm -rf organizations/fabric-ca/IGRBank/msp organizations/fabric-ca/IGRBank/tls-cert.pem organizations/fabric-ca/IGRBank/ca-cert.pem organizations/fabric-ca/IGRBank/IssuerPublicKey organizations/fabric-ca/IGRBank/IssuerRevocationPublicKey organizations/fabric-ca/IGRBank/fabric-ca-server.db'
     ${CONTAINER_CLI} run --rm -v "$(pwd):/data" busybox sh -c 'cd /data && rm -rf organizations/fabric-ca/ordererOrg/msp organizations/fabric-ca/ordererOrg/tls-cert.pem organizations/fabric-ca/ordererOrg/ca-cert.pem organizations/fabric-ca/ordererOrg/IssuerPublicKey organizations/fabric-ca/ordererOrg/IssuerRevocationPublicKey organizations/fabric-ca/ordererOrg/fabric-ca-server.db'
     ${CONTAINER_CLI} run --rm -v "$(pwd):/data" busybox sh -c 'cd /data && rm -rf addOrg3/fabric-ca/org3/msp addOrg3/fabric-ca/org3/tls-cert.pem addOrg3/fabric-ca/org3/ca-cert.pem addOrg3/fabric-ca/org3/IssuerPublicKey addOrg3/fabric-ca/org3/IssuerRevocationPublicKey addOrg3/fabric-ca/org3/fabric-ca-server.db'
     # remove channel and script artifacts

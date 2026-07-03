@@ -8,7 +8,7 @@
 
 source scripts/utils.sh
 
-CHANNEL_NAME=${1:-"mychannel"}
+CHANNEL_NAME=${1:-"igrchannel"}
 CC_NAME=${2}
 CC_SRC_PATH=${3}
 CCAAS_DOCKER_RUN=${4:-"true"}
@@ -136,13 +136,13 @@ startDockerContainer() {
   if [ "$CCAAS_DOCKER_RUN" = "true" ]; then
     infoln "Starting the Chaincode-as-a-Service docker container..."
     set -x
-    ${CONTAINER_CLI} run --rm -d --name peer0org1_${CC_NAME}_ccaas  \
+    ${CONTAINER_CLI} run --rm -d --name peer0IGRPrimary_${CC_NAME}_ccaas  \
                   --network fabric_test \
                   -e CHAINCODE_SERVER_ADDRESS=0.0.0.0:${CCAAS_SERVER_PORT} \
                   -e CHAINCODE_ID=$PACKAGE_ID -e CORE_CHAINCODE_ID_NAME=$PACKAGE_ID \
                     ${CC_NAME}_ccaas_image:latest
 
-    ${CONTAINER_CLI} run  --rm -d --name peer0org2_${CC_NAME}_ccaas \
+    ${CONTAINER_CLI} run  --rm -d --name peer0IGRBank_${CC_NAME}_ccaas \
                   --network fabric_test \
                   -e CHAINCODE_SERVER_ADDRESS=0.0.0.0:${CCAAS_SERVER_PORT} \
                   -e CHAINCODE_ID=$PACKAGE_ID -e CORE_CHAINCODE_ID_NAME=$PACKAGE_ID \
@@ -155,12 +155,12 @@ startDockerContainer() {
   else
   
     infoln "Not starting docker containers; these are the commands we would have run"
-    infoln "    ${CONTAINER_CLI} run --rm -d --name peer0org1_${CC_NAME}_ccaas  \
+    infoln "    ${CONTAINER_CLI} run --rm -d --name peer0IGRPrimary_${CC_NAME}_ccaas  \
                   --network fabric_test \
                   -e CHAINCODE_SERVER_ADDRESS=0.0.0.0:${CCAAS_SERVER_PORT} \
                   -e CHAINCODE_ID=$PACKAGE_ID -e CORE_CHAINCODE_ID_NAME=$PACKAGE_ID \
                     ${CC_NAME}_ccaas_image:latest"
-    infoln "    ${CONTAINER_CLI} run --rm -d --name peer0org2_${CC_NAME}_ccaas  \
+    infoln "    ${CONTAINER_CLI} run --rm -d --name peer0IGRBank_${CC_NAME}_ccaas  \
                   --network fabric_test \
                   -e CHAINCODE_SERVER_ADDRESS=0.0.0.0:${CCAAS_SERVER_PORT} \
                   -e CHAINCODE_ID=$PACKAGE_ID -e CORE_CHAINCODE_ID_NAME=$PACKAGE_ID \
@@ -191,16 +191,16 @@ approveForMyOrg 1
 
 ## check whether the chaincode definition is ready to be committed
 ## expect org1 to have approved and org2 not to
-checkCommitReadiness 1 "\"Org1MSP\": true" "\"Org2MSP\": false"
-checkCommitReadiness 2 "\"Org1MSP\": true" "\"Org2MSP\": false"
+checkCommitReadiness 1 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": false"
+checkCommitReadiness 2 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": false"
 
 ## now approve also for org2
 approveForMyOrg 2
 
 ## check whether the chaincode definition is ready to be committed
 ## expect them both to have approved
-checkCommitReadiness 1 "\"Org1MSP\": true" "\"Org2MSP\": true"
-checkCommitReadiness 2 "\"Org1MSP\": true" "\"Org2MSP\": true"
+checkCommitReadiness 1 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": true"
+checkCommitReadiness 2 "\"IGRPrimaryMSP\": true" "\"IGRBankMSP\": true"
 
 ## now that we know for sure both orgs have approved, commit the definition
 commitChaincodeDefinition 1 2

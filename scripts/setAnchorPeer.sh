@@ -14,9 +14,14 @@
 TEST_NETWORK_HOME=${TEST_NETWORK_HOME:-${PWD}}
 . ${TEST_NETWORK_HOME}/scripts/configUpdate.sh
 
-# Anchor peer ports: local compose defaults 7051 / 9051; five-server callers export PEER1_PORT_PEER & PEER3_PORT_PEER before invoking.
-ANCHOR_PRIMARY_PORT="${PEER1_PORT_PEER:-7051}"
-ANCHOR_BANK_PORT="${PEER3_PORT_PEER:-9051}"
+# Anchor peer ports: local compose 7051/9051; five-server uses PEER1_PORT_PEER / PEER3_PORT_PEER from credentials.
+if [[ "${LOCAL_FABRIC_NETWORK:-}" == "1" ]]; then
+  ANCHOR_PRIMARY_PORT=7051
+  ANCHOR_BANK_PORT=9051
+else
+  ANCHOR_PRIMARY_PORT="${PEER1_PORT_PEER:-7051}"
+  ANCHOR_BANK_PORT="${PEER3_PORT_PEER:-9051}"
+fi
 
 # NOTE: This requires jq and configtxlator for execution.
 createAnchorPeerUpdate() {
