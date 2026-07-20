@@ -1,0 +1,3 @@
+[submodule "IGR-Python-apis"]
+	path = IGR-Python-apis
+	url = https://github.com/PandoraCreator/IGR-Python-apis
