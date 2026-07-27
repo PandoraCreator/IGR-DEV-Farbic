@@ -17,18 +17,23 @@ import (
 )
 
 const (
-	testDocRef = "MH:PUNE:SR42:2026:991"
-	testUidV1  = "MH:PUNE:SR42:2026:991:V1"
-	testUidV2  = "MH:PUNE:SR42:2026:991:V2"
-	testHash   = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	testSROId  = "42"
-	testSROUser = "sro42-officer"
+	testOrigUid = "MH:PUNE:SR42:2026:991"
+	testCC1     = "MH:PUNE:SR42:2026:991:CC1"
+	testCC2     = "MH:PUNE:SR42:2026:991:CC2"
+	testHash    = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	testHash2   = "1111111111111111111111111111111111111111111111111111111111111111"
+	testSigHash = "2222222222222222222222222222222222222222222222222222222222222222"
+	zeroHash    = "0000000000000000000000000000000000000000000000000000000000000000"
+	writerMSP   = "IGRPrimaryMSP"
 )
 
+// ---------------------------------------------------------------------------
+// Mock Fabric infrastructure
+// ---------------------------------------------------------------------------
+
 type mockClientIdentity struct {
-	mspID      string
-	id         string
-	attributes map[string]string
+	mspID string
+	id    string
 }
 
 func (m *mockClientIdentity) GetID() (string, error) {
@@ -38,14 +43,10 @@ func (m *mockClientIdentity) GetID() (string, error) {
 	return "test-user", nil
 }
 func (m *mockClientIdentity) GetMSPID() (string, error) { return m.mspID, nil }
-func (m *mockClientIdentity) GetAttributeValue(attr string) (string, bool, error) {
-	if m.attributes == nil {
-		return "", false, nil
-	}
-	v, ok := m.attributes[attr]
-	return v, ok, nil
+func (m *mockClientIdentity) GetAttributeValue(string) (string, bool, error) {
+	return "", false, nil
 }
-func (m *mockClientIdentity) AssertAttributeValue(string, string) error { return nil }
+func (m *mockClientIdentity) AssertAttributeValue(string, string) error      { return nil }
 func (m *mockClientIdentity) GetX509Certificate() (*x509.Certificate, error) { return nil, nil }
 
 type memoryStub struct {
@@ -66,13 +67,15 @@ func newMemoryStub(txID string) *memoryStub {
 	}
 }
 
-func (s *memoryStub) GetArgs() [][]byte                                      { return nil }
-func (s *memoryStub) GetStringArgs() []string                                  { return nil }
-func (s *memoryStub) GetFunctionAndParameters() (string, []string)           { return "", nil }
-func (s *memoryStub) GetArgsSlice() ([]byte, error)                            { return nil, errors.New("not implemented") }
-func (s *memoryStub) GetTxID() string                                          { return s.txID }
-func (s *memoryStub) GetChannelID() string                                     { return "testchannel" }
-func (s *memoryStub) InvokeChaincode(string, [][]byte, string) *peer.Response  { return nil }
+func (s *memoryStub) GetArgs() [][]byte                            { return nil }
+func (s *memoryStub) GetStringArgs() []string                      { return nil }
+func (s *memoryStub) GetFunctionAndParameters() (string, []string) { return "", nil }
+func (s *memoryStub) GetArgsSlice() ([]byte, error)                { return nil, errors.New("not implemented") }
+func (s *memoryStub) GetTxID() string                              { return s.txID }
+func (s *memoryStub) GetChannelID() string                         { return "testchannel" }
+func (s *memoryStub) InvokeChaincode(string, [][]byte, string) *peer.Response {
+	return nil
+}
 func (s *memoryStub) GetState(key string) ([]byte, error) {
 	v, ok := s.state[key]
 	if !ok {
@@ -88,7 +91,9 @@ func (s *memoryStub) DelState(key string) error {
 	delete(s.state, key)
 	return nil
 }
-func (s *memoryStub) SetStateValidationParameter(string, []byte) error { return errors.New("not implemented") }
+func (s *memoryStub) SetStateValidationParameter(string, []byte) error {
+	return errors.New("not implemented")
+}
 func (s *memoryStub) GetStateValidationParameter(string) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
@@ -129,9 +134,11 @@ func (s *memoryStub) GetHistoryForKey(string) (shim.HistoryQueryIteratorInterfac
 func (s *memoryStub) GetPrivateData(string, string) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *memoryStub) PutPrivateData(string, string, []byte) error { return errors.New("not implemented") }
-func (s *memoryStub) DelPrivateData(string, string) error           { return errors.New("not implemented") }
-func (s *memoryStub) PurgePrivateData(string, string) error         { return errors.New("not implemented") }
+func (s *memoryStub) PutPrivateData(string, string, []byte) error {
+	return errors.New("not implemented")
+}
+func (s *memoryStub) DelPrivateData(string, string) error   { return errors.New("not implemented") }
+func (s *memoryStub) PurgePrivateData(string, string) error { return errors.New("not implemented") }
 func (s *memoryStub) GetPrivateDataByRange(string, string, string) (shim.StateQueryIteratorInterface, error) {
 	return nil, errors.New("not implemented")
 }
@@ -144,8 +151,8 @@ func (s *memoryStub) GetPrivateDataQueryResult(string, string) (shim.StateQueryI
 func (s *memoryStub) GetPrivateDataHash(string, string) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
-func (s *memoryStub) GetCreator() ([]byte, error)              { return []byte("creator"), nil }
-func (s *memoryStub) GetDecorations() map[string][]byte        { return nil }
+func (s *memoryStub) GetCreator() ([]byte, error)       { return []byte("creator"), nil }
+func (s *memoryStub) GetDecorations() map[string][]byte { return nil }
 func (s *memoryStub) GetSignedProposal() (*peer.SignedProposal, error) {
 	return nil, errors.New("not implemented")
 }
@@ -154,8 +161,8 @@ func (s *memoryStub) SetEvent(name string, payload []byte) error {
 	s.events = append(s.events, name)
 	return nil
 }
-func (s *memoryStub) SetTransient(map[string][]byte) error     { return errors.New("not implemented") }
-func (s *memoryStub) GetBinding() ([]byte, error)              { return nil, errors.New("not implemented") }
+func (s *memoryStub) SetTransient(map[string][]byte) error { return errors.New("not implemented") }
+func (s *memoryStub) GetBinding() ([]byte, error)          { return nil, errors.New("not implemented") }
 func (s *memoryStub) GetTxTimestamp() (*timestamppb.Timestamp, error) {
 	return s.txTimestamp, nil
 }
@@ -171,10 +178,7 @@ type kvIterator struct {
 	index   int
 }
 
-func (it *kvIterator) HasNext() bool {
-	return it.index < len(it.records)
-}
-
+func (it *kvIterator) HasNext() bool { return it.index < len(it.records) }
 func (it *kvIterator) Next() (*queryresult.KV, error) {
 	if !it.HasNext() {
 		return nil, errors.New("no more items in iterator")
@@ -183,10 +187,7 @@ func (it *kvIterator) Next() (*queryresult.KV, error) {
 	it.index++
 	return kv, nil
 }
-
-func (it *kvIterator) Close() error {
-	return nil
-}
+func (it *kvIterator) Close() error { return nil }
 
 func splitCompositeKey(compositeKey string) (string, []string, error) {
 	const delim = "\x00"
@@ -223,334 +224,410 @@ func matchesPartialCompositeKey(key, objectType string, attributes []string) boo
 	return true
 }
 
+// ---------------------------------------------------------------------------
+// Test context + payload helpers
+// ---------------------------------------------------------------------------
+
 func newTestContext(mspID, txID string) (contractapi.TransactionContextInterface, *memoryStub) {
-	sroId, signerID := "", ""
-	if mspID == "IGRPrimaryMSP" {
-		sroId = testSROId
-		signerID = testSROUser
-	}
-	return newTestContextOnStub(mspID, txID, newMemoryStub(txID), sroId, signerID)
+	return newTestContextOnStub(mspID, txID, newMemoryStub(txID))
 }
 
-func newTestContextOnStub(mspID, txID string, stub *memoryStub, sroId, signerID string) (contractapi.TransactionContextInterface, *memoryStub) {
+func newTestContextOnStub(mspID, txID string, stub *memoryStub) (contractapi.TransactionContextInterface, *memoryStub) {
 	stub.txID = txID
-	ci := &mockClientIdentity{mspID: mspID, id: signerID}
-	if sroId != "" {
-		ci.attributes = map[string]string{sroIDAttribute: sroId}
-	}
+	ci := &mockClientIdentity{mspID: mspID, id: mspID + "-user"}
 	ctx := &contractapi.TransactionContext{}
 	ctx.SetStub(stub)
 	ctx.SetClientIdentity(ci)
 	return ctx, stub
 }
 
-func createAnchor(t *testing.T, cc *IgrAnchorChaincode, stub *memoryStub, txID, uid, hash, ref string) string {
-	t.Helper()
-	ctx, _ := newTestContextOnStub("IGRPrimaryMSP", txID, stub, testSROId, testSROUser)
-	txnId, err := cc.CreateAnchorVersion(ctx, uid, testDocRef, hash, ref, "signer-meta")
-	if err != nil {
-		t.Fatalf("CreateAnchorVersion(%s): %v", uid, err)
+func anchorPayload(orig, uid string, version int, finalHash, sigHash string, prev *string) string {
+	p := CertifiedCopyAnchorPayload{
+		OriginalDocumentUid:  orig,
+		CertifiedCopyUid:     uid,
+		CertifiedCopyVersion: version,
+		DocumentNo:           "991",
+		RegistrationYear:     2026,
+		District:             "PUNE",
+		SroOffice:            "SR42",
+		DocumentType:         "SALE_DEED",
+		FinalSignedPdfHash:   finalHash,
+		SignatureHash:        sigHash,
+		SignatureVersion:     "v1",
+		RequestId:            "REQ-2026-000123",
+		SroId:                "SR42",
+		SigningAuthorityRef:  "sro-officer-ref",
+		SigningTimestamp:     "2026-07-19T10:00:00Z",
+		PreviousVersionRef:   prev,
 	}
-	return txnId
+	b, _ := json.Marshal(p)
+	return string(b)
 }
 
-func TestCreateAnchorVersion_V1(t *testing.T) {
+func noiPayload(orig string) string {
+	p := NOIApprovalPayload{
+		OriginalDocumentUid:  orig,
+		NoiApplicationId:     "NOI-2026-777",
+		BankId:               "BANK-HDFC",
+		LoanState:            "ACTIVE_LOAN",
+		ApprovedBySroRef:     "sro-officer-ref",
+		ApprovalTimestamp:    "2026-07-19T11:00:00Z",
+		TransactionTimestamp: "2026-07-19T11:00:01Z",
+	}
+	b, _ := json.Marshal(p)
+	return string(b)
+}
+
+func nocPayload(orig string) string {
+	p := LoanFinishPayload{
+		OriginalDocumentUid:  orig,
+		NoiApplicationId:     "NOI-2026-777",
+		BankId:               "BANK-HDFC",
+		LoanState:            "NO_LOAN",
+		NocReferenceId:       "NOC-2026-555",
+		SubmittedTimestamp:   "2026-08-01T09:00:00Z",
+		TransactionTimestamp: "2026-08-01T09:00:01Z",
+	}
+	b, _ := json.Marshal(p)
+	return string(b)
+}
+
+func mustAnchor(t *testing.T, cc *IgrAnchorChaincode, stub *memoryStub, txID, orig, uid string, version int, finalHash string, prev *string) *AnchorResponse {
+	t.Helper()
+	ctx, _ := newTestContextOnStub(writerMSP, txID, stub)
+	resp, err := cc.AnchorCertifiedCopy(ctx, anchorPayload(orig, uid, version, finalHash, testSigHash, prev))
+	if err != nil {
+		t.Fatalf("AnchorCertifiedCopy(%s): %v", uid, err)
+	}
+	return resp
+}
+
+func strptr(s string) *string { return &s }
+
+// ---------------------------------------------------------------------------
+// Anchor tests
+// ---------------------------------------------------------------------------
+
+func TestAnchorCertifiedCopy_CC1Success(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-v1")
-	ctx, _ := newTestContextOnStub("IGRPrimaryMSP", "tx-v1", stub, testSROId, testSROUser)
+	stub := newMemoryStub("tx-cc1")
+	resp := mustAnchor(t, cc, stub, "tx-cc1", testOrigUid, testCC1, 1, testHash, nil)
 
-	txnId, err := cc.CreateAnchorVersion(ctx, testUidV1, testDocRef, testHash, "REF-001", "signer-meta")
-	if err != nil {
-		t.Fatalf("CreateAnchorVersion: %v", err)
-	}
-	if txnId != "tx-v1" {
-		t.Fatalf("txnId = %q, want tx-v1", txnId)
+	if resp.Status != anchorStatusAnchored || resp.TxnId != "tx-cc1" || resp.CertifiedCopyUid != testCC1 {
+		t.Fatalf("unexpected response: %+v", resp)
 	}
 
-	docKey, err := docCompositeKey(stub, testDocRef)
-	if err != nil {
-		t.Fatalf("docCompositeKey: %v", err)
-	}
+	docKey, _ := docCompositeKey(stub, testOrigUid)
 	var pointer DocPointer
 	if err := json.Unmarshal(stub.state[docKey], &pointer); err != nil {
 		t.Fatalf("unmarshal DocPointer: %v", err)
 	}
-	if pointer.LatestUid != testUidV1 || pointer.Version != 1 {
+	if pointer.LatestCertifiedCopyUid != testCC1 || pointer.VersionCount != 1 {
 		t.Fatalf("unexpected doc pointer: %+v", pointer)
 	}
 
-	uidKey, err := uidCompositeKey(stub, testUidV1)
-	if err != nil {
-		t.Fatalf("uidCompositeKey: %v", err)
-	}
+	uidKey, _ := uidCompositeKey(stub, testCC1)
 	var record AnchorRecord
 	if err := json.Unmarshal(stub.state[uidKey], &record); err != nil {
 		t.Fatalf("unmarshal AnchorRecord: %v", err)
 	}
-	if record.PdfHash != "sha256:"+testHash {
-		t.Fatalf("stored hash = %q", record.PdfHash)
+	if record.FinalSignedPdfHash != "sha256:"+testHash {
+		t.Fatalf("stored final hash = %q", record.FinalSignedPdfHash)
 	}
-	if record.ReferenceId != "REF-001" || record.SignerRef != "signer-meta" {
-		t.Fatalf("unexpected anchor fields: %+v", record)
+	if record.SignatureHash != "sha256:"+testSigHash {
+		t.Fatalf("stored signature hash = %q", record.SignatureHash)
 	}
-	if len(stub.events) != 1 || stub.events[0] != "AnchorCreated" {
-		t.Fatalf("events = %v, want [AnchorCreated]", stub.events)
+	if record.CertifiedCopyVersion != 1 || record.RequestId != "REQ-2026-000123" {
+		t.Fatalf("unexpected record: %+v", record)
 	}
-}
-
-func TestGetLatestAnchor_AfterV1(t *testing.T) {
-	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-v1")
-	createAnchor(t, cc, stub, "tx-v1", testUidV1, testHash, "REF-001")
-
-	ctx, _ := newTestContextOnStub("IGRPrimaryMSP", "tx-read", stub, testSROId, testSROUser)
-	latest, err := cc.GetLatestAnchor(ctx, testDocRef)
-	if err != nil {
-		t.Fatalf("GetLatestAnchor: %v", err)
+	if record.PreviousVersionRef != "" {
+		t.Fatalf("CC1 previousVersionRef = %q, want empty", record.PreviousVersionRef)
 	}
-	if latest.Uid != testUidV1 {
-		t.Fatalf("latest uid = %q, want %q", latest.Uid, testUidV1)
+	if len(stub.events) != 1 || stub.events[0] != eventCertifiedCopyAnchored {
+		t.Fatalf("events = %v, want [%s]", stub.events, eventCertifiedCopyAnchored)
 	}
 }
 
-func TestCreateAnchorVersion_V2Chain(t *testing.T) {
+func TestAnchorCertifiedCopy_CC2ChainsPrevious(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-v1")
-	createAnchor(t, cc, stub, "tx-v1", testUidV1, testHash, "REF-001")
-	createAnchor(t, cc, stub, "tx-v2", testUidV2, testHash, "REF-002")
+	stub := newMemoryStub("tx-cc1")
+	mustAnchor(t, cc, stub, "tx-cc1", testOrigUid, testCC1, 1, testHash, nil)
+	mustAnchor(t, cc, stub, "tx-cc2", testOrigUid, testCC2, 2, testHash2, strptr(testCC1))
 
-	ctx, _ := newTestContextOnStub("IGRPrimaryMSP", "tx-read", stub, testSROId, testSROUser)
-
-	latest, err := cc.GetLatestAnchor(ctx, testDocRef)
-	if err != nil {
-		t.Fatalf("GetLatestAnchor: %v", err)
-	}
-	if latest.Uid != testUidV2 {
-		t.Fatalf("latest uid = %q, want %q", latest.Uid, testUidV2)
+	docKey, _ := docCompositeKey(stub, testOrigUid)
+	var pointer DocPointer
+	_ = json.Unmarshal(stub.state[docKey], &pointer)
+	if pointer.LatestCertifiedCopyUid != testCC2 || pointer.VersionCount != 2 {
+		t.Fatalf("unexpected doc pointer: %+v", pointer)
 	}
 
-	v1, err := cc.GetAnchorByUid(ctx, testUidV1)
-	if err != nil {
-		t.Fatalf("GetAnchorByUid V1: %v", err)
-	}
-	if v1.ReferenceId != "REF-001" {
-		t.Fatalf("V1 record changed: %+v", v1)
+	uidKey, _ := uidCompositeKey(stub, testCC2)
+	var record AnchorRecord
+	_ = json.Unmarshal(stub.state[uidKey], &record)
+	if record.PreviousVersionRef != testCC1 {
+		t.Fatalf("CC2 previousVersionRef = %q, want %s", record.PreviousVersionRef, testCC1)
 	}
 }
 
-func TestCreateAnchorVersion_DuplicateUidSameHash(t *testing.T) {
+func TestAnchorCertifiedCopy_IdempotentSameHash(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-v1")
-	createAnchor(t, cc, stub, "tx-v1", testUidV1, testHash, "REF-001")
+	stub := newMemoryStub("tx-cc1")
+	mustAnchor(t, cc, stub, "tx-cc1", testOrigUid, testCC1, 1, testHash, nil)
 
-	docKey, err := docCompositeKey(stub, testDocRef)
-	if err != nil {
-		t.Fatalf("docCompositeKey: %v", err)
-	}
-	uidKey, err := uidCompositeKey(stub, testUidV1)
-	if err != nil {
-		t.Fatalf("uidCompositeKey: %v", err)
-	}
+	docKey, _ := docCompositeKey(stub, testOrigUid)
+	uidKey, _ := uidCompositeKey(stub, testCC1)
 	docBefore := append([]byte(nil), stub.state[docKey]...)
 	uidBefore := append([]byte(nil), stub.state[uidKey]...)
 	eventsBefore := len(stub.events)
 
-	ctx, _ := newTestContextOnStub("IGRPrimaryMSP", "tx-dup", stub, testSROId, testSROUser)
-	txnId, err := cc.CreateAnchorVersion(ctx, testUidV1, testDocRef, testHash, "REF-002", "")
+	ctx, _ := newTestContextOnStub(writerMSP, "tx-dup", stub)
+	resp, err := cc.AnchorCertifiedCopy(ctx, anchorPayload(testOrigUid, testCC1, 1, testHash, testSigHash, nil))
 	if err != nil {
 		t.Fatalf("expected idempotent success: %v", err)
 	}
-	if txnId != "tx-v1" {
-		t.Fatalf("txnId = %q, want tx-v1 (existing)", txnId)
+	if resp.TxnId != "tx-cc1" {
+		t.Fatalf("txnId = %q, want tx-cc1 (existing)", resp.TxnId)
 	}
-	if string(stub.state[docKey]) != string(docBefore) {
-		t.Fatal("doc pointer changed on idempotent retry")
-	}
-	if string(stub.state[uidKey]) != string(uidBefore) {
-		t.Fatal("anchor record changed on idempotent retry")
+	if string(stub.state[docKey]) != string(docBefore) || string(stub.state[uidKey]) != string(uidBefore) {
+		t.Fatal("ledger changed on idempotent retry")
 	}
 	if len(stub.events) != eventsBefore {
-		t.Fatalf("events = %d, want %d (no new event on idempotent retry)", len(stub.events), eventsBefore)
+		t.Fatalf("events = %d, want %d (no new event)", len(stub.events), eventsBefore)
 	}
 }
 
-func TestCreateAnchorVersion_DuplicateUidDifferentHash(t *testing.T) {
+func TestAnchorCertifiedCopy_ConflictDifferentHash(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-v1")
-	createAnchor(t, cc, stub, "tx-v1", testUidV1, testHash, "REF-001")
+	stub := newMemoryStub("tx-cc1")
+	mustAnchor(t, cc, stub, "tx-cc1", testOrigUid, testCC1, 1, testHash, nil)
 
-	ctx, _ := newTestContextOnStub("IGRPrimaryMSP", "tx-dup", stub, testSROId, testSROUser)
-	otherHash := "0000000000000000000000000000000000000000000000000000000000000000"
-	_, err := cc.CreateAnchorVersion(ctx, testUidV1, testDocRef, otherHash, "REF-002", "")
-	if err == nil {
-		t.Fatal("expected hash conflict error")
-	}
-	if !strings.Contains(err.Error(), "already anchored with different hash") {
-		t.Fatalf("unexpected error: %v", err)
+	ctx, _ := newTestContextOnStub(writerMSP, "tx-dup", stub)
+	_, err := cc.AnchorCertifiedCopy(ctx, anchorPayload(testOrigUid, testCC1, 1, zeroHash, testSigHash, nil))
+	if err == nil || !strings.Contains(err.Error(), "already anchored with a different hash") {
+		t.Fatalf("expected hash conflict error, got %v", err)
 	}
 }
 
-func TestVerifyDocHash_MatchAndMismatch(t *testing.T) {
+func TestAnchorCertifiedCopy_RejectsBadIdentifiers(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-v1")
-	createAnchor(t, cc, stub, "tx-v1", testUidV1, testHash, "REF-001")
 
-	ctx, _ := newTestContextOnStub("IGRPrimaryMSP", "tx-verify", stub, testSROId, testSROUser)
-
-	result, err := cc.VerifyDocHash(ctx, testUidV1, testHash)
-	if err != nil || result.Status != "MATCH" {
-		t.Fatalf("VerifyDocHash match: result=%+v err=%v", result, err)
+	cases := []struct {
+		name         string
+		orig, uid    string
+		version      int
+		prev         *string
+		preAnchorCC1 bool
+	}{
+		{name: "bad orig", orig: "2026SRO42DOC991", uid: testCC1, version: 1},
+		{name: "v-suffix uid", orig: testOrigUid, uid: "MH:PUNE:SR42:2026:991:V1", version: 1},
+		{name: "uid/orig mismatch", orig: testOrigUid, uid: "MH:MUM:SR42:2026:991:CC1", version: 1},
+		{name: "version not next (CC2 first)", orig: testOrigUid, uid: testCC2, version: 2},
+		{name: "version arg mismatch", orig: testOrigUid, uid: testCC1, version: 5},
 	}
-	if result.AnchoredHash != "sha256:"+testHash || result.TxId != "tx-v1" {
-		t.Fatalf("unexpected match result: %+v", result)
-	}
-
-	result, err = cc.VerifyDocHash(ctx, testUidV1, "sha256:"+strings.ToUpper(testHash))
-	if err != nil || result.Status != "MATCH" {
-		t.Fatalf("VerifyDocHash prefixed uppercase: result=%+v err=%v", result, err)
-	}
-
-	result, err = cc.VerifyDocHash(ctx, testUidV1, "0000000000000000000000000000000000000000000000000000000000000000")
-	if err != nil {
-		t.Fatalf("VerifyDocHash mismatch err: %v", err)
-	}
-	if result.Status != "MISMATCH" {
-		t.Fatalf("expected MISMATCH, got %+v", result)
-	}
-	if result.AnchoredHash != "sha256:"+testHash || result.TxId != "tx-v1" {
-		t.Fatalf("unexpected mismatch result: %+v", result)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := newMemoryStub("tx-seed")
+			if tc.preAnchorCC1 {
+				mustAnchor(t, cc, stub, "tx-seed", testOrigUid, testCC1, 1, testHash, nil)
+			}
+			ctx, _ := newTestContextOnStub(writerMSP, "tx-bad", stub)
+			_, err := cc.AnchorCertifiedCopy(ctx, anchorPayload(tc.orig, tc.uid, tc.version, testHash, testSigHash, tc.prev))
+			if err == nil {
+				t.Fatalf("expected error for case %q", tc.name)
+			}
+		})
 	}
 }
 
-func TestVerifyDocHash_NotFound(t *testing.T) {
+func TestAnchorCertifiedCopy_WrongPreviousVersionRef(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContext("IGRPrimaryMSP", "tx-verify")
+	stub := newMemoryStub("tx-cc1")
+	mustAnchor(t, cc, stub, "tx-cc1", testOrigUid, testCC1, 1, testHash, nil)
 
-	result, err := cc.VerifyDocHash(ctx, testUidV1, testHash)
-	if err != nil {
-		t.Fatalf("VerifyDocHash not found err: %v", err)
-	}
-	if result.Status != "NOT_FOUND" {
-		t.Fatalf("expected NOT_FOUND, got %+v", result)
-	}
-	if result.AnchoredHash != "" || result.TxId != "" {
-		t.Fatalf("NOT_FOUND should omit anchoredHash and txId: %+v", result)
+	ctx, _ := newTestContextOnStub(writerMSP, "tx-cc2", stub)
+	_, err := cc.AnchorCertifiedCopy(ctx, anchorPayload(testOrigUid, testCC2, 2, testHash2, testSigHash, strptr("MH:PUNE:SR42:2026:991:CC9")))
+	if err == nil || !strings.Contains(err.Error(), "previousVersionRef") {
+		t.Fatalf("expected previousVersionRef mismatch error, got %v", err)
 	}
 }
 
-func TestValidatePdfHash_UppercaseNormalized(t *testing.T) {
-	upper := strings.ToUpper(testHash)
-	normalized, err := validatePdfHash(upper)
-	if err != nil {
-		t.Fatalf("validatePdfHash: %v", err)
-	}
-	if normalized != "sha256:"+testHash {
-		t.Fatalf("normalized = %q", normalized)
-	}
-}
-
-func TestCreateAnchorVersion_InvalidHash(t *testing.T) {
+func TestAnchorCertifiedCopy_RejectsWrongMSP(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContext("IGRPrimaryMSP", "tx-bad-hash")
-
-	cases := []string{
-		"",
-		"abc",
-		"dGVzdA==",
-		"/tmp/hash.txt",
+	ctx, _ := newTestContext("IGRBankMSP", "tx-bank")
+	_, err := cc.AnchorCertifiedCopy(ctx, anchorPayload(testOrigUid, testCC1, 1, testHash, testSigHash, nil))
+	if err == nil || !strings.Contains(err.Error(), "not authorized") {
+		t.Fatalf("expected MSP authorization error, got %v", err)
 	}
-	for _, hash := range cases {
-		_, err := cc.CreateAnchorVersion(ctx, testUidV1, testDocRef, hash, "REF-001", "")
-		if err == nil {
-			t.Fatalf("expected error for hash %q", hash)
+}
+
+func TestAnchorCertifiedCopy_RejectsBadHash(t *testing.T) {
+	cc := &IgrAnchorChaincode{}
+
+	badFinal := []string{"", "abc", "dGVzdA==", "/tmp/hash.txt"}
+	for _, h := range badFinal {
+		ctx, _ := newTestContext(writerMSP, "tx-bad-final")
+		if _, err := cc.AnchorCertifiedCopy(ctx, anchorPayload(testOrigUid, testCC1, 1, h, testSigHash, nil)); err == nil {
+			t.Fatalf("expected error for final hash %q", h)
 		}
 	}
+	// invalid signature hash
+	ctx, _ := newTestContext(writerMSP, "tx-bad-sig")
+	if _, err := cc.AnchorCertifiedCopy(ctx, anchorPayload(testOrigUid, testCC1, 1, testHash, "abc", nil)); err == nil {
+		t.Fatal("expected error for invalid signatureHash")
+	}
 }
 
-func TestCreateAnchorVersion_WrongMSP(t *testing.T) {
+func TestAnchorCertifiedCopy_RejectsMissingRequiredFields(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContextOnStub("IGRBankMSP", "tx-bank", newMemoryStub("tx-bank"), "", "bank-officer")
+	ctx, _ := newTestContext(writerMSP, "tx-missing")
 
-	_, err := cc.CreateAnchorVersion(ctx, testUidV1, testDocRef, testHash, "REF-001", "")
-	if err == nil {
-		t.Fatal("expected MSP authorization error")
+	p := CertifiedCopyAnchorPayload{
+		OriginalDocumentUid: testOrigUid,
+		CertifiedCopyUid:    testCC1,
+		FinalSignedPdfHash:  testHash,
+		SignatureHash:       testSigHash,
+		SignatureVersion:    "v1",
+		SigningTimestamp:    "2026-07-19T10:00:00Z",
+		// RequestId intentionally empty
 	}
-	if !strings.Contains(err.Error(), "not authorized") {
-		t.Fatalf("unexpected error: %v", err)
+	b, _ := json.Marshal(p)
+	if _, err := cc.AnchorCertifiedCopy(ctx, string(b)); err == nil {
+		t.Fatal("expected error for missing requestId")
 	}
 }
 
-func TestCreateAnchorVersion_MissingSROAttribute(t *testing.T) {
+func TestGetCertifiedCopyAnchor(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContextOnStub("IGRPrimaryMSP", "tx-no-sro", newMemoryStub("tx-no-sro"), "", testSROUser)
+	stub := newMemoryStub("tx-cc1")
+	mustAnchor(t, cc, stub, "tx-cc1", testOrigUid, testCC1, 1, testHash, nil)
 
-	_, err := cc.CreateAnchorVersion(ctx, testUidV1, testDocRef, testHash, "REF-001", "")
-	if err == nil {
-		t.Fatal("expected missing sroId error")
+	ctx, _ := newTestContextOnStub(writerMSP, "tx-read", stub)
+	rec, err := cc.GetCertifiedCopyAnchor(ctx, testCC1)
+	if err != nil {
+		t.Fatalf("GetCertifiedCopyAnchor: %v", err)
+	}
+	if rec.CertifiedCopyUid != testCC1 {
+		t.Fatalf("unexpected record: %+v", rec)
+	}
+
+	if _, err := cc.GetCertifiedCopyAnchor(ctx, testCC2); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("expected not-found error, got %v", err)
 	}
 }
 
-func TestCreateAnchorVersion_SROMismatch(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Verify tests
+// ---------------------------------------------------------------------------
+
+func TestVerifyDocumentHash_SpecificUid(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContextOnStub("IGRPrimaryMSP", "tx-wrong-sro", newMemoryStub("tx-wrong-sro"), "99", "sro99-officer")
+	stub := newMemoryStub("tx-cc1")
+	mustAnchor(t, cc, stub, "tx-cc1", testOrigUid, testCC1, 1, testHash, nil)
+	ctx, _ := newTestContextOnStub(writerMSP, "tx-verify", stub)
 
-	_, err := cc.CreateAnchorVersion(ctx, testUidV1, testDocRef, testHash, "REF-001", "")
-	if err == nil {
-		t.Fatal("expected sroId mismatch error")
+	// MATCH (raw hex)
+	res, err := cc.VerifyDocumentHash(ctx, testHash, testCC1, "")
+	if err != nil || res.Status != verifyStatusMatch {
+		t.Fatalf("match: res=%+v err=%v", res, err)
 	}
-	if !strings.Contains(err.Error(), "does not match document SRO") {
-		t.Fatalf("unexpected error: %v", err)
+	if res.MatchedCertifiedCopyUid != testCC1 || res.MatchedVersion != 1 || res.TxnId != "tx-cc1" {
+		t.Fatalf("unexpected match result: %+v", res)
+	}
+
+	// MATCH (prefixed uppercase normalization)
+	res, err = cc.VerifyDocumentHash(ctx, "sha256:"+strings.ToUpper(testHash), testCC1, "")
+	if err != nil || res.Status != verifyStatusMatch {
+		t.Fatalf("normalized match: res=%+v err=%v", res, err)
+	}
+
+	// MISMATCH
+	res, err = cc.VerifyDocumentHash(ctx, zeroHash, testCC1, "")
+	if err != nil || res.Status != verifyStatusMismatch {
+		t.Fatalf("mismatch: res=%+v err=%v", res, err)
+	}
+	if res.AnchoredHash != "sha256:"+testHash {
+		t.Fatalf("mismatch should carry anchoredHash: %+v", res)
+	}
+
+	// NOT_FOUND (unanchored version)
+	res, err = cc.VerifyDocumentHash(ctx, testHash, testCC2, "")
+	if err != nil || res.Status != verifyStatusNotFound {
+		t.Fatalf("not found: res=%+v err=%v", res, err)
 	}
 }
 
-func TestCreateAnchorVersion_BadDocRef(t *testing.T) {
+func TestVerifyDocumentHash_VersionAware(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContext("IGRPrimaryMSP", "tx-bad-docref")
+	stub := newMemoryStub("tx-cc1")
+	mustAnchor(t, cc, stub, "tx-cc1", testOrigUid, testCC1, 1, testHash, nil)
+	mustAnchor(t, cc, stub, "tx-cc2", testOrigUid, testCC2, 2, testHash2, strptr(testCC1))
+	ctx, _ := newTestContextOnStub(writerMSP, "tx-verify", stub)
 
-	_, err := cc.CreateAnchorVersion(ctx, testUidV1, "2026SRO42DOC991", testHash, "REF-001", "")
-	if err == nil {
-		t.Fatal("expected bad docRef error")
+	// Matches the OLDER version (CC1) even though CC2 is latest.
+	res, err := cc.VerifyDocumentHash(ctx, testHash, "", testOrigUid)
+	if err != nil || res.Status != verifyStatusMatch {
+		t.Fatalf("version-aware match: res=%+v err=%v", res, err)
+	}
+	if res.MatchedCertifiedCopyUid != testCC1 || res.MatchedVersion != 1 {
+		t.Fatalf("expected match on CC1, got %+v", res)
+	}
+
+	// Unknown hash across all versions -> MISMATCH.
+	res, err = cc.VerifyDocumentHash(ctx, zeroHash, "", testOrigUid)
+	if err != nil || res.Status != verifyStatusMismatch {
+		t.Fatalf("version-aware mismatch: res=%+v err=%v", res, err)
+	}
+
+	// Unknown document -> NOT_FOUND.
+	res, err = cc.VerifyDocumentHash(ctx, testHash, "", "MH:PUNE:SR42:2026:777")
+	if err != nil || res.Status != verifyStatusNotFound {
+		t.Fatalf("version-aware not-found: res=%+v err=%v", res, err)
 	}
 }
 
-func TestCreateAnchorVersion_BadUid(t *testing.T) {
+func TestVerifyDocumentHash_RequiresIdentifier(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContext("IGRPrimaryMSP", "tx-bad-uid")
-
-	_, err := cc.CreateAnchorVersion(ctx, "NoI1", testDocRef, testHash, "REF-001", "")
-	if err == nil {
-		t.Fatal("expected bad uid error")
+	ctx, _ := newTestContext(writerMSP, "tx-verify")
+	if _, err := cc.VerifyDocumentHash(ctx, testHash, "", ""); err == nil {
+		t.Fatal("expected error when neither identifier is supplied")
 	}
 }
 
-func TestCreateAnchorVersion_UidDocRefMismatch(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Document history tests
+// ---------------------------------------------------------------------------
+
+func TestGetDocumentHistory(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContext("IGRPrimaryMSP", "tx-mismatch")
+	stub := newMemoryStub("tx-cc1")
+	mustAnchor(t, cc, stub, "tx-cc1", testOrigUid, testCC1, 1, testHash, nil)
+	mustAnchor(t, cc, stub, "tx-cc2", testOrigUid, testCC2, 2, testHash2, strptr(testCC1))
+	ctx, _ := newTestContextOnStub(writerMSP, "tx-hist", stub)
 
-	_, err := cc.CreateAnchorVersion(ctx, "MH:MUM:SR42:2026:991:V1", testDocRef, testHash, "REF-001", "")
-	if err == nil {
-		t.Fatal("expected uid/docRef mismatch error")
+	hist, err := cc.GetDocumentHistory(ctx, testOrigUid)
+	if err != nil {
+		t.Fatalf("GetDocumentHistory: %v", err)
+	}
+	if hist.LatestCertifiedCopyUid != testCC2 || len(hist.Versions) != 2 {
+		t.Fatalf("unexpected history: %+v", hist)
+	}
+	if hist.Versions[0].CertifiedCopyVersion != 1 || hist.Versions[1].CertifiedCopyVersion != 2 {
+		t.Fatalf("versions not ordered: %+v", hist.Versions)
+	}
+
+	if _, err := cc.GetDocumentHistory(ctx, "MH:PUNE:SR42:2026:777"); err == nil {
+		t.Fatal("expected not-found error for unknown document")
 	}
 }
 
-func TestGetAnchorByUid_NotFound(t *testing.T) {
-	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContext("IGRPrimaryMSP", "tx-read")
-
-	_, err := cc.GetAnchorByUid(ctx, testUidV1)
-	if err == nil {
-		t.Fatal("expected not found error")
-	}
-	if !strings.Contains(err.Error(), "does not exist") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
+// ---------------------------------------------------------------------------
+// Loan tests
+// ---------------------------------------------------------------------------
 
 func TestGetLoanState_NotFound(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContext("IGRBankMSP", "tx-loan-read")
-
-	state, err := cc.GetLoanState(ctx, testDocRef)
+	ctx, _ := newTestContext(writerMSP, "tx-loan-read")
+	state, err := cc.GetLoanState(ctx, testOrigUid)
 	if err != nil {
 		t.Fatalf("GetLoanState: %v", err)
 	}
@@ -559,82 +636,171 @@ func TestGetLoanState_NotFound(t *testing.T) {
 	}
 }
 
-func TestMarkLoanActive_SetsActive(t *testing.T) {
+func TestRecordNOIApproval_SetsActive(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-anchor")
-	createAnchor(t, cc, stub, "tx-anchor", testUidV1, testHash, "REF-001")
+	stub := newMemoryStub("tx-noi")
+	ctx, _ := newTestContextOnStub(writerMSP, "tx-noi", stub)
 
-	ctxWrite, _ := newTestContextOnStub("IGRBankMSP", "tx-loan-active", stub, "", "bank-officer")
-	if err := cc.MarkLoanActive(ctxWrite, testDocRef, "LN-2026-001", "IGRBANK", testUidV1); err != nil {
-		t.Fatalf("MarkLoanActive: %v", err)
-	}
-
-	ctxRead, _ := newTestContextOnStub("IGRPrimaryMSP", "tx-loan-read", stub, testSROId, testSROUser)
-	state, err := cc.GetLoanState(ctxRead, testDocRef)
+	resp, err := cc.RecordNOIApproval(ctx, noiPayload(testOrigUid))
 	if err != nil {
-		t.Fatalf("GetLoanState: %v", err)
+		t.Fatalf("RecordNOIApproval: %v", err)
 	}
+	if resp.Status != loanStatusActive || resp.TxnId != "tx-noi" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+
+	ctxRead, _ := newTestContextOnStub(writerMSP, "tx-read", stub)
+	state, _ := cc.GetLoanState(ctxRead, testOrigUid)
+	if state.Status != loanStatusActive || state.NoiApplicationId != "NOI-2026-777" || state.ApprovedBySroRef != "sro-officer-ref" {
+		t.Fatalf("unexpected loan state: %+v", state)
+	}
+
+	hist, _ := cc.GetLoanHistory(ctxRead, testOrigUid)
+	if len(hist.Transitions) != 1 {
+		t.Fatalf("history len = %d, want 1", len(hist.Transitions))
+	}
+	e := hist.Transitions[0]
+	if e.FromState != loanStatusNotFound || e.ToState != loanStatusActive || e.Seq != 1 {
+		t.Fatalf("unexpected history entry: %+v", e)
+	}
+	if len(stub.events) != 1 || stub.events[0] != eventNOIApproved {
+		t.Fatalf("events = %v, want [%s]", stub.events, eventNOIApproved)
+	}
+}
+
+func TestRecordNOIApproval_DoubleReject(t *testing.T) {
+	cc := &IgrAnchorChaincode{}
+	stub := newMemoryStub("tx-noi")
+	ctx, _ := newTestContextOnStub(writerMSP, "tx-noi", stub)
+	if _, err := cc.RecordNOIApproval(ctx, noiPayload(testOrigUid)); err != nil {
+		t.Fatalf("first approval: %v", err)
+	}
+
+	ctx2, _ := newTestContextOnStub(writerMSP, "tx-noi-2", stub)
+	if _, err := cc.RecordNOIApproval(ctx2, noiPayload(testOrigUid)); err == nil || !strings.Contains(err.Error(), "already ACTIVE_LOAN") {
+		t.Fatalf("expected double-activation rejection, got %v", err)
+	}
+}
+
+func TestRecordLoanSatisfaction_SetsNoLoan(t *testing.T) {
+	cc := &IgrAnchorChaincode{}
+	stub := newMemoryStub("tx-noi")
+	ctxNoi, _ := newTestContextOnStub(writerMSP, "tx-noi", stub)
+	if _, err := cc.RecordNOIApproval(ctxNoi, noiPayload(testOrigUid)); err != nil {
+		t.Fatalf("approval: %v", err)
+	}
+
+	ctxNoc, _ := newTestContextOnStub(writerMSP, "tx-noc", stub)
+	resp, err := cc.RecordLoanSatisfaction(ctxNoc, nocPayload(testOrigUid))
+	if err != nil {
+		t.Fatalf("RecordLoanSatisfaction: %v", err)
+	}
+	if resp.Status != loanStatusNoLoan {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+
+	ctxRead, _ := newTestContextOnStub(writerMSP, "tx-read", stub)
+	state, _ := cc.GetLoanState(ctxRead, testOrigUid)
+	if state.Status != loanStatusNoLoan || state.NocReferenceId != "NOC-2026-555" {
+		t.Fatalf("unexpected loan state: %+v", state)
+	}
+
+	hist, _ := cc.GetLoanHistory(ctxRead, testOrigUid)
+	if len(hist.Transitions) != 2 {
+		t.Fatalf("history len = %d, want 2", len(hist.Transitions))
+	}
+	if hist.Transitions[1].FromState != loanStatusActive || hist.Transitions[1].ToState != loanStatusNoLoan || hist.Transitions[1].Seq != 2 {
+		t.Fatalf("unexpected transition: %+v", hist.Transitions[1])
+	}
+}
+
+func TestRecordLoanSatisfaction_RejectWhenNotActive(t *testing.T) {
+	cc := &IgrAnchorChaincode{}
+
+	// Fresh document (NOT_FOUND) -> reject.
+	ctx, stub := newTestContext(writerMSP, "tx-noc")
+	if _, err := cc.RecordLoanSatisfaction(ctx, nocPayload(testOrigUid)); err == nil {
+		t.Fatal("expected rejection on NOT_FOUND loan")
+	}
+
+	// After satisfaction (NO_LOAN) -> reject again.
+	ctxNoi, _ := newTestContextOnStub(writerMSP, "tx-noi", stub)
+	_, _ = cc.RecordNOIApproval(ctxNoi, noiPayload(testOrigUid))
+	ctxNoc, _ := newTestContextOnStub(writerMSP, "tx-noc-1", stub)
+	_, _ = cc.RecordLoanSatisfaction(ctxNoc, nocPayload(testOrigUid))
+	ctxNoc2, _ := newTestContextOnStub(writerMSP, "tx-noc-2", stub)
+	if _, err := cc.RecordLoanSatisfaction(ctxNoc2, nocPayload(testOrigUid)); err == nil {
+		t.Fatal("expected rejection when already NO_LOAN")
+	}
+}
+
+func TestLoanReLoanAfterSatisfaction(t *testing.T) {
+	cc := &IgrAnchorChaincode{}
+	stub := newMemoryStub("tx-noi")
+	ctxNoi, _ := newTestContextOnStub(writerMSP, "tx-noi", stub)
+	_, _ = cc.RecordNOIApproval(ctxNoi, noiPayload(testOrigUid))
+	ctxNoc, _ := newTestContextOnStub(writerMSP, "tx-noc", stub)
+	_, _ = cc.RecordLoanSatisfaction(ctxNoc, nocPayload(testOrigUid))
+
+	// NO_LOAN -> ACTIVE_LOAN allowed again.
+	ctxNoi2, _ := newTestContextOnStub(writerMSP, "tx-noi-2", stub)
+	if _, err := cc.RecordNOIApproval(ctxNoi2, noiPayload(testOrigUid)); err != nil {
+		t.Fatalf("re-loan after NO_LOAN should be allowed: %v", err)
+	}
+	ctxRead, _ := newTestContextOnStub(writerMSP, "tx-read", stub)
+	state, _ := cc.GetLoanState(ctxRead, testOrigUid)
 	if state.Status != loanStatusActive {
-		t.Fatalf("status = %q, want ACTIVE", state.Status)
+		t.Fatalf("status = %q, want ACTIVE_LOAN", state.Status)
 	}
-	if state.LoanId != "LN-2026-001" || state.ActivatedByUid != testUidV1 {
-		t.Fatalf("unexpected state: %+v", state)
+	hist, _ := cc.GetLoanHistory(ctxRead, testOrigUid)
+	if len(hist.Transitions) != 3 {
+		t.Fatalf("history len = %d, want 3", len(hist.Transitions))
 	}
 }
 
-func TestReleaseLoan_SetsReleased(t *testing.T) {
+func TestLoanWrites_RejectWrongMSP(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-anchor")
-	createAnchor(t, cc, stub, "tx-anchor", testUidV1, testHash, "REF-001")
 
-	ctxActive, _ := newTestContextOnStub("IGRBankMSP", "tx-loan-active", stub, "", "bank-officer")
-	if err := cc.MarkLoanActive(ctxActive, testDocRef, "LN-2026-001", "IGRBANK", testUidV1); err != nil {
-		t.Fatalf("MarkLoanActive: %v", err)
+	ctx, _ := newTestContext("IGRBankMSP", "tx-noi")
+	if _, err := cc.RecordNOIApproval(ctx, noiPayload(testOrigUid)); err == nil || !strings.Contains(err.Error(), "not authorized") {
+		t.Fatalf("expected MSP rejection for NOI approval, got %v", err)
 	}
-
-	ctxRelease, _ := newTestContextOnStub("IGRBankMSP", "tx-loan-release", stub, "", "bank-officer")
-	if err := cc.ReleaseLoan(ctxRelease, testDocRef, "LN-2026-001", "IGRBANK", "loan closed"); err != nil {
-		t.Fatalf("ReleaseLoan: %v", err)
+	ctx2, _ := newTestContext("IGRBankMSP", "tx-noc")
+	if _, err := cc.RecordLoanSatisfaction(ctx2, nocPayload(testOrigUid)); err == nil || !strings.Contains(err.Error(), "not authorized") {
+		t.Fatalf("expected MSP rejection for loan finish, got %v", err)
 	}
+}
 
-	ctxRead, _ := newTestContextOnStub("IGRBankMSP", "tx-loan-read", stub, "", "bank-officer")
-	state, err := cc.GetLoanState(ctxRead, testDocRef)
+func TestGetLoanHistory_EmptyInitially(t *testing.T) {
+	cc := &IgrAnchorChaincode{}
+	ctx, _ := newTestContext(writerMSP, "tx-hist")
+	hist, err := cc.GetLoanHistory(ctx, testOrigUid)
 	if err != nil {
-		t.Fatalf("GetLoanState: %v", err)
+		t.Fatalf("GetLoanHistory: %v", err)
 	}
-	if state.Status != loanStatusReleased {
-		t.Fatalf("status = %q, want RELEASED", state.Status)
-	}
-}
-
-func TestMarkLoanActive_RequiresAnchoredUid(t *testing.T) {
-	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-loan-no-anchor")
-	ctx, _ := newTestContextOnStub("IGRBankMSP", "tx-loan-active", stub, "", "bank-officer")
-
-	err := cc.MarkLoanActive(ctx, testDocRef, "LN-2026-001", "IGRBANK", testUidV1)
-	if err == nil {
-		t.Fatal("expected error when activatedByUid is not anchored")
+	if len(hist.Transitions) != 0 {
+		t.Fatalf("expected empty history, got %+v", hist.Transitions)
 	}
 }
 
-func TestMarkLoanActive_RejectsWrongMSP(t *testing.T) {
+func TestGetLoanState_RejectsBadOriginalUid(t *testing.T) {
 	cc := &IgrAnchorChaincode{}
-	stub := newMemoryStub("tx-anchor")
-	createAnchor(t, cc, stub, "tx-anchor", testUidV1, testHash, "REF-001")
-
-	ctx, _ := newTestContextOnStub("Org1MSP", "tx-loan-active", stub, "", "other-user")
-	if err := cc.MarkLoanActive(ctx, testDocRef, "LN-2026-001", "IGRBANK", testUidV1); err == nil {
-		t.Fatal("expected MSP authorization error")
+	ctx, _ := newTestContext(writerMSP, "tx-bad")
+	if _, err := cc.GetLoanState(ctx, "2026SRO42DOC991"); err == nil {
+		t.Fatal("expected invalid originalDocumentUid error")
 	}
 }
 
-func TestGetLoanState_RejectsBadDocRef(t *testing.T) {
-	cc := &IgrAnchorChaincode{}
-	ctx, _ := newTestContext("IGRBankMSP", "tx-bad-docref")
+// ---------------------------------------------------------------------------
+// Unit: hash validation
+// ---------------------------------------------------------------------------
 
-	_, err := cc.GetLoanState(ctx, "2026SRO42DOC991")
-	if err == nil {
-		t.Fatal("expected invalid docRef error")
+func TestValidateSha256Hash_Normalization(t *testing.T) {
+	normalized, err := validateSha256Hash(strings.ToUpper(testHash))
+	if err != nil {
+		t.Fatalf("validateSha256Hash: %v", err)
+	}
+	if normalized != "sha256:"+testHash {
+		t.Fatalf("normalized = %q", normalized)
 	}
 }
